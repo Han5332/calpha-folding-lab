@@ -410,6 +410,62 @@
   // Knowledge-based nonbonded terms. Cα: excluded volume and β-pairing. Side-chain sites: excluded volume,
   // contact-reference pair preferences, and a burial term on each residue's neighbour count. Two passes,
   // because a burial force needs every residue's count first. Site forces accumulate in sys.siteF.
+  // Verlet neighbour lists. A pair is listed when it was within its cutoff + NL_SKIN at the last rebuild; the list is
+  // rebuilt once any bead (or side-chain site) has moved more than NL_SKIN / 2 since then, so every pair inside the
+  // cutoff is always listed. Listed pairs keep their original order: forces and energies are bit-for-bit those of the
+  // full O(n²) loop, which only ever skipped the pairs left out here.
+  const NL_SKIN = 2.0;
+  function moved(ref, y, n, h2) {
+    for (let k = 0; k < 3 * n; k += 3) {
+      const dx = y[k] - ref[k], dy = y[k + 1] - ref[k + 1], dz = y[k + 2] - ref[k + 2];
+      if (dx * dx + dy * dy + dz * dz > h2) return true;
+    }
+    return false;
+  }
+  function pairList(sys, x, S, caCut, siteCut) {
+    const n = sys.n, I = sys.pI, J = sys.pJ;
+    let L = sys.nl;
+    if (!L) L = sys.nl = { list: new Int32Array(I.length), len: 0, xr: new Float64Array(3 * n), sr: new Float64Array(3 * n), valid: false, rebuilds: 0 };
+    const sk = sys.nlSkin || NL_SKIN, h2 = (sk / 2) ** 2;
+    if (L.valid && !moved(L.xr, x, n, h2) && !moved(L.sr, S, n, h2)) return L;
+    const c1 = (caCut + sk) ** 2, c2 = (siteCut + sk) ** 2;
+    let len = 0;
+    for (let t = 0; t < I.length; t++) {
+      const i = I[t], j = J[t];
+      const dx = x[3 * j] - x[3 * i], dy = x[3 * j + 1] - x[3 * i + 1], dz = x[3 * j + 2] - x[3 * i + 2];
+      const sx = S[3 * j] - S[3 * i], sy = S[3 * j + 1] - S[3 * i + 1], sz = S[3 * j + 2] - S[3 * i + 2];
+      if (dx * dx + dy * dy + dz * dz < c1 || sx * sx + sy * sy + sz * sz < c2) L.list[len++] = t;
+    }
+    L.len = len; L.xr.set(x.subarray ? x.subarray(0, 3 * n) : x.slice(0, 3 * n)); L.sr.set(S.subarray(0, 3 * n)); L.valid = true; L.rebuilds++;
+    return L;
+  }
+  // per restraint and 1 Å segment: p1 and the Catmull-Rom coefficients c, b, a of tableEval (same arithmetic, same values)
+  function restCoef(R) {
+    if (R.coef) return R.coef;
+    const GN = R.gridN, V = R.V, m = R.I.length, C = new Float64Array(m * (GN - 1) * 4);
+    for (let t = 0; t < m; t++) for (let k = 0; k < GN - 1; k++) {
+      const off = t * GN, p0 = V[off + Math.max(0, k - 1)], p1 = V[off + k], p2 = V[off + k + 1], p3 = V[off + Math.min(GN - 1, k + 2)];
+      const o = (t * (GN - 1) + k) * 4;
+      C[o] = p1; C[o + 1] = -p0 + p2; C[o + 2] = 2 * p0 - 5 * p1 + 4 * p2 - p3; C[o + 3] = -p0 + 3 * p1 - 3 * p2 + p3;
+    }
+    return (R.coef = C);
+  }
+  function restList(sys, x, R, top) {
+    const n = sys.n;
+    let L = sys.rl;
+    if (!L || L.src !== R) L = sys.rl = { list: new Int32Array(R.I.length), len: 0, xr: new Float64Array(3 * n), valid: false, src: R };
+    const sk = sys.nlSkin || NL_SKIN;
+    if (L.valid && !moved(L.xr, x, n, (sk / 2) ** 2)) return L;
+    const c = (top + sk) ** 2, RI = R.I, RJ = R.J;
+    let len = 0;
+    for (let t = 0; t < RI.length; t++) {
+      const i = RI[t], j = RJ[t];
+      const dx = x[3 * j] - x[3 * i], dy = x[3 * j + 1] - x[3 * i + 1], dz = x[3 * j + 2] - x[3 * i + 2];
+      if (dx * dx + dy * dy + dz * dz < c) L.list[len++] = t;
+    }
+    L.len = len; L.xr.set(x.subarray ? x.subarray(0, 3 * n) : x.slice(0, 3 * n)); L.valid = true;
+    return L;
+  }
   function kbPairs(sys, x, f) {
     const p = sys.params, n = sys.n, S = sys.site, FS = sys.siteF, HS = sys.hasSite;
     const I = sys.pI, J = sys.pJ, PE = sys.pE, PB = sys.pB, PQ = sys.pq, PW = sys.pw, NB = sys.nb, DN = sys.dEdn;
@@ -426,8 +482,9 @@
       ML[i] = l > 1e-6 ? l : 0;
       if (ML[i]) { NV[3 * i] = m0 / l; NV[3 * i + 1] = m1 / l; NV[3 * i + 2] = m2 / l; }
     }
-    for (let t = 0; t < I.length; t++) {
-      const i = I[t], j = J[t];
+    const NLs = pairList(sys, x, S, 6, Math.max(b1, r2c, p.siteRepel)), LS = NLs.list, LN = NLs.len;
+    for (let k = 0; k < LN; k++) {
+      const t = LS[k], i = I[t], j = J[t];
       const dx = x[3 * j] - x[3 * i], dy = x[3 * j + 1] - x[3 * i + 1], dz = x[3 * j + 2] - x[3 * i + 2];
       const r2 = dx * dx + dy * dy + dz * dz;
       if (r2 < 36) {
@@ -469,8 +526,8 @@
       Eu += wb * (T[row + k] * (1 - fr) + T[row + k + 1] * fr);
       DN[i] = wb * (T[row + k + 1] - T[row + k]);
     }
-    for (let t = 0; t < I.length; t++) {
-      const q = PQ[t];
+    for (let k = 0; k < LN; k++) {
+      const t = LS[k], q = PQ[t];
       if (q < 0) continue;
       const i = I[t], j = J[t];
       let dEdq = (DN[i] + DN[j]) * PW[t];
@@ -761,17 +818,20 @@
     const R = sys.rest;
     if (R && p.evo > 0) {
       const RI = R.I, RJ = R.J, RV = R.V, G0 = R.grid0, GN = R.gridN, top = G0 + GN - 1, w = p.evo, smax = sys.restSepMax || Infinity;
-      for (let t = 0; t < RI.length; t++) {
-        const i = RI[t], j = RJ[t];
+      const RL = restList(sys, x, R, top), LR = RL.list, NR = RL.len, RC = restCoef(R);
+      for (let k = 0; k < NR; k++) {
+        const t = LR[k], i = RI[t], j = RJ[t];
         if (j - i > smax) continue;
         const dx = x[3 * j] - x[3 * i], dy = x[3 * j + 1] - x[3 * i + 1], dz = x[3 * j + 2] - x[3 * i + 2];
         const r2 = dx * dx + dy * dy + dz * dz;
         if (r2 >= top * top) continue;
         const r = Math.sqrt(r2);
         if (r <= G0) { Ev += w * RV[t * GN]; continue; }
-        tableEval(RV, t * GN, GN, r - G0, false);
-        Ev += w * tabV;
-        const g = -w * tabD / r;
+        // Catmull-Rom as in tableEval, with each segment's coefficients computed once per restraint set
+        const xg = r - G0, kk = Math.floor(xg), tt = xg - kk, o = (t * (GN - 1) + kk) * 4;
+        const c1 = RC[o + 1], c2 = RC[o + 2], c3 = RC[o + 3];
+        Ev += w * (0.5 * (2 * RC[o] + c1 * tt + c2 * tt * tt + c3 * tt * tt * tt));
+        const g = -w * (0.5 * (c1 + 2 * c2 * tt + 3 * c3 * tt * tt)) / r;
         f[3 * j] += g * dx; f[3 * j + 1] += g * dy; f[3 * j + 2] += g * dz;
         f[3 * i] -= g * dx; f[3 * i + 1] -= g * dy; f[3 * i + 2] -= g * dz;
       }

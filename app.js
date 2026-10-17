@@ -29,7 +29,7 @@
 
   const MSA = window.FOLD_MSA || {}, EVO_MODEL = window.FOLD_EVO_MODEL || null;
   const METHODS = {
-    evo: { name: 'MSA + AI', badge: 'v7', tHi: 2.0, tLo: 0.4,
+    evo: { name: 'MSA + AI', badge: 'v8', tHi: 2.0, tLo: 0.4,
       desc: 'A neural network reads an alignment of related sequences and predicts how far apart every residue pair is. Those distances steer the v2 force field.',
       sliders: [
         { key: 'evo', label: 'AI distance restraints', hint: 'Weight of the network’s distance potentials, learned from the MSA' },
@@ -70,6 +70,7 @@
     go: {},
   };
   const STEP_CHOICES = [50e3, 100e3, 150e3, 200e3, 300e3, 400e3, 500e3, 600e3, 800e3, 1e6, 1.2e6, 1.5e6, 2e6, 3e6, 4e6, 5e6, 6e6, 8e6, 10e6, 12e6, 15e6, 20e6, 25e6, 30e6, 40e6, 50e6, 75e6, 100e6];
+  const MAX_RES = 300;   // longest chain the lab accepts (the network was trained on 10–400 residues)
   function autoStepsIdx(n) {
     const want = clamp(15000 * n, 150e3, 1.2e6);
     let best = 0;
@@ -229,7 +230,7 @@
   // ---------- runners ----------
   function WorkerRunner(run, onMsg) {
     this.workers = run.reps.map(rep => {
-      const w = new Worker('worker.js');
+      const w = new Worker('worker.js?v8');
       w.onmessage = e => onMsg(rep.r, e.data);
       w.onerror = e => { e.preventDefault(); onMsg(rep.r, { type: 'error', message: e.message || 'worker failed' }); };
       return w;
@@ -1105,7 +1106,7 @@
     if (evoWorker === false || typeof Worker === 'undefined') return null;
     if (evoWorker) return evoWorker;
     try {
-      evoWorker = new Worker('evo-worker.js?v7');
+      evoWorker = new Worker('evo-worker.js?v8');
       evoWorker.onmessage = e => {
         const m = e.data, job = evoJobs.get(m.id);
         if (!job) return;
@@ -1425,6 +1426,8 @@
       <p><b>Neural network.</b> A ${EVO_MODEL ? fmtInt(EVO_MODEL.params / 1000) + 'k' : 'small'}-parameter residual convolutional network in the style of RaptorX and trRosetta. Its 1D part reads the sequence profile and predicts helix, strand or coil; its 2D part, with dilated 3×3 convolutions, reads DCA, mutual information and both residues' 1D features and predicts an 18-bin histogram of the Cα–Cα distance (under 4 Å, 1 Å bins to 20 Å, beyond). It was trained offline with PyTorch on the alignments of 2,651 PDB chains: the ${KB.chains} knowledge-base chains plus 2,276 more from the same non-redundant set (X-ray, ≤ 1.8 Å, under 30% identity to each other), with every chain related to the six test proteins removed (113 in all). Alignment-depth subsampling and random cropping teach it to cope with shallow alignments and short chains. It runs here in plain JavaScript.</p>
       <p><b>Version 3 to 4.</b> Version 3 was the same network trained on the 375 knowledge-base chains alone. On 72 new chains that neither version saw, the larger training set raised long-range contact precision from 52% to 56% and secondary-structure accuracy from 75% to 79%. Folding the six test proteins stayed level (benchmark below): better predictions for villin and the homeodomain, worse for Trp-cage.</p>
       <p><b>Version 4 to 6.</b> Version 6 is the same network trained on 2,651 chains. On 162 new chains neither version saw, long-range contact precision rose from 59% to 62% and secondary-structure accuracy from 81% to 83%. This time the folds followed: over two random seeds, villin went from 7.2 to 2.4 Å, protein G from 5.3 to 3.8 Å and ubiquitin from 3.5 to 3.2 Å, with the homeodomain level at 2.7 Å (mean of the four 4.7 → 3.0 Å, TM-score 0.50 → 0.58). Chignolin and Trp-cage have no real alignment, so the fallback skips the network for them and they are unchanged.</p>
+      <p><b>Versions 7 and 8.</b> Version 7 widened the network to 64 and 48 channels (583k parameters) and trained it on about 5,500 chains; on 287 chains neither saw, long-range contact precision rose from 61% to 63%. Version 8 fine-tuned v7 for 8 more epochs after adding 781 chains of 12–49 and 251–396 residues, and after removing every training chain related to four new test proteins (WW domain, CheY, T4 lysozyme, adenylate kinase). On unseen small chains its distance loss fell from 2.31 to 2.06, and on unseen large chains long-range precision rose from 69% to 71%. Over three seeds × 12 replicas the four new proteins fold to 3.8, 2.8, 4.2 and 4.1 Å (TM-score 0.56–0.77), and on 8 of the 10 proteins the three seeds land within 0.4 Å of each other.</p>
+      <p><b>Choosing the final model.</b> On protein G, v7 sometimes found the native fold in half the replicas but picked a β-register shift (strands paired 2–4 residues off) that fits the predicted distances very slightly better. The cluster score now adds three times the backbone dihedral energy when restraints are on, and the lab runs 12 replicas by default. On two fresh seeds the protein G result went from 6.1 and 5.4 Å to 3.2 and 3.1 Å, with no protein made worse.</p>
       <p><b>Restraints.</b> Each pair likely to lie within 20 Å gets a smooth potential from its histogram, −ln[p(d) / p(19.5 Å)] + 1.57 ln(d / 19.5 Å), the form trRosetta uses. They are switched on by sequence separation (pairs up to 12 apart, then up to 24, then all) so that helices and turns form, with the handedness the fragments prefer, before the long-range pulls arrive; distances alone cannot tell a fold from its mirror image. Fragments are picked to match the network's secondary structure. Everything else is the v2 force field below.</p>
       <p><b>Choices made on the benchmark.</b> Two settings were picked by comparing them on these six proteins, so v3 is not entirely blind: the trRosetta reference against a background reference built from training-set distances (mean 4.9 vs 5.1 Å), and, after a control run with near-perfect restraints showed replicas folding into the mirror image, choosing the lowest-energy large cluster rather than the largest. Averaging the network's secondary structure with the fragment vote was also tried and dropped.</p>
       <p><b>Limits.</b> The two designed peptides (chignolin, Trp-cage) have no natural homologs, so the network sees one sequence and adds little. Coevolution resolves contacts well once Neff is roughly the chain length or more.</p>
@@ -1440,13 +1443,13 @@
       <p><b>Packing.</b> Each residue carries a side-chain bead placed by a per-residue fit to real side-chain centroids, which captures the handedness of L-amino acids. Beads feel a burial potential, −ln P(neighbours | residue type) / P(neighbours), contact-reference pair preferences such as salt bridges, and excluded volume. Extended residues pair through a directional β-sheet term. All statistics come from the same library.</p>
       <p><b>No peeking.</b> The library is a 30%-identity non-redundant set of X-ray structures at 1.8 Å or better. Any chain that aligns to one of the six test proteins above a shuffled-sequence significance threshold was removed (19 chains, including NEDD8 and other ubiquitin-like proteins, protein L and homeodomain relatives).</p>
       <h4>Choosing the final model</h4>
-      <p>Late low-temperature frames from all replicas are clustered by RMSD; the frame with the most neighbours (the medoid of the densest cluster) is the consensus model, as in SPICKER and Rosetta. It is usually more reliable than the single lowest-energy frame. With MSA restraints, a fold and its mirror image satisfy the predicted distances equally well, so among the large clusters the one with the lowest energies wins; the fragment potentials know which way helices twist.</p>
+      <p>Late low-temperature frames from all replicas are clustered by RMSD; the frame with the most neighbours (the medoid of the densest cluster) is the consensus model, as in SPICKER and Rosetta. It is usually more reliable than the single lowest-energy frame. With MSA restraints, a fold and its mirror image satisfy the predicted distances equally well, so among the large clusters the one with the lowest energies wins (energy plus three times the backbone dihedral term); the fragment potentials know which way helices twist.</p>
       <h4>Atoms on screen</h4>
       <p>The PDB structure shows its real heavy atoms. The model is coarse-grained, so its atoms are rebuilt: backbone N, C and O from peptide-plane orientations learned from the library (0.2–0.5 Å error for N and C on the test proteins), side chains from the library's most common rotamer for each residue type.</p>
       <h4>Scores</h4>
       <p>RMSD after optimal superposition; TM-score and GDT-TS maximised over superpositions; Q, the share of PDB contacts within 1.2× their native distance; secondary structure from Cα geometry against the PDB record; and an energy check that scores the PDB structure with the same force field.</p>
       <h4>Benchmark</h4>
-      <p>Consensus-model Cα RMSD to the PDB structure (Å, lower is better), measured on this build with 6 replicas, seed 11 and the default schedule. The same protocol was used for every column, so differences come from the force field. Reproduce any row with “Run all six”.</p>
+      <p>Consensus-model Cα RMSD to the PDB structure (Å, lower is better). Columns up to v6 were measured with 6 replicas, seed 11 and the default schedule; the v8 column is the mean of three seeds (11, 101, 202) with 12 replicas each and the current model selection. Reproduce any row with “Run all six”.</p>
       ${benchTable()}
       <h4>Methods compared</h4>
       <p><b>Simple physics</b> is version 1 of this lab (Chou–Fasman propensities and a hydrophobic attraction). <b>Native contacts (Gō)</b> follows Clementi, Nymeyer &amp; Onuchic (2000); it is built from the answer and shows a folding route, not a prediction.</p>
@@ -1736,7 +1739,7 @@
       const seq = $('seq-input').value.toUpperCase().replace(/[^A-Z]/g, ''), bad = seq.replace(/[ACDEFGHIKLMNPQRSTVWY]/g, ''), msg = $('load-msg');
       msg.classList.toggle('err', true);
       if (bad) { msg.textContent = `Unknown residue letters: ${[...new Set(bad)].join(', ')}. Use the 20 standard one-letter codes.`; return; }
-      if (seq.length < 8 || seq.length > 120) { msg.textContent = `The sequence has ${seq.length} residues; use 8 to 120.`; return; }
+      if (seq.length < 8 || seq.length > MAX_RES) { msg.textContent = `The sequence has ${seq.length} residues; use 8 to ${MAX_RES}.`; return; }
       msg.classList.toggle('err', false);
       msg.textContent = `Folding a ${seq.length}-residue custom sequence.`;
       state.queue = [];
@@ -1766,7 +1769,7 @@
   // ---------- PDB upload ----------
   const THREE3 = { ALA: 'A', ARG: 'R', ASN: 'N', ASP: 'D', CYS: 'C', GLN: 'Q', GLU: 'E', GLY: 'G', HIS: 'H', ILE: 'I', LEU: 'L', LYS: 'K', MET: 'M', PHE: 'F',
     PRO: 'P', SER: 'S', THR: 'T', TRP: 'W', TYR: 'Y', VAL: 'V', MSE: 'M', HSD: 'H', HSE: 'H', HIE: 'H', HID: 'H' };
-  // Residues are gathered per chain; the first protein chain with 8–120 residues is used.
+  // Residues are gathered per chain; the first protein chain with 8–MAX_RES residues is used.
   function chainCollector() {
     const chains = new Map();
     return {
@@ -1786,11 +1789,11 @@
   function buildUploaded({ chains, id, title, ranges, filename, format }) {
     const all = [...chains].map(([ch, c]) => ({ ch, ca: c.res.filter(r => r.atoms.some(q => q[0] === 'CA')) })).filter(c => c.ca.length);
     if (!all.length) throw new Error(`No protein Cα atoms found in this ${format} file.`);
-    const fit = all.find(c => c.ca.length >= 8 && c.ca.length <= 120);
+    const fit = all.find(c => c.ca.length >= 8 && c.ca.length <= MAX_RES);
     if (!fit) {
       const c = all[0];
       if (c.ca.length < 8) throw new Error(`Chain ${c.ch} has only ${c.ca.length} residues; the lab needs at least 8.`);
-      throw new Error(`Chain ${c.ch} has ${c.ca.length} residues${all.length > 1 ? `, and no other chain has 8–120` : ''}. This browser model handles up to 120; try a single small domain.`);
+      throw new Error(`Chain ${c.ch} has ${c.ca.length} residues${all.length > 1 ? `, and no other chain has 8–${MAX_RES}` : ''}. This browser model handles up to ${MAX_RES}; try a single domain.`);
     }
     const { ch: chain, ca } = fit;
     const coords = [];

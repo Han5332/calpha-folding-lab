@@ -338,7 +338,7 @@ td.wrap { white-space: normal; color: var(--ink-2); font-size: 12.5px; min-width
         <button class="btn" id="seq-toggle" type="button" aria-expanded="false">Type a sequence</button>
       </div>
       <div id="custom" hidden>
-        <label class="label" for="seq-input">One-letter sequence, 8–120 residues</label>
+        <label class="label" for="seq-input">One-letter sequence, 8–300 residues</label>
         <textarea id="seq-input" spellcheck="false">KKWTWNPATGKWTWQE</textarea>
         <div class="row"><button class="btn" id="seq-use" type="button">Fold this sequence</button></div>
         <p class="note">With no experimental structure, the comparison views stay empty.</p>
@@ -521,13 +521,13 @@ td.wrap { white-space: normal; color: var(--ink-2); font-size: 12.5px; min-width
 <div class="tooltip" id="tip" hidden></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="natives.js" charset="utf-8"></script>
+<script src="natives.js?v8" charset="utf-8"></script>
 <script src="kb.js" charset="utf-8"></script>
-<script src="engine.js" charset="utf-8"></script>
+<script src="engine.js?v8" charset="utf-8"></script>
 <script src="evo.js" charset="utf-8"></script>
-<script src="evo-msa.js" charset="utf-8"></script>
-<script src="evo-model.js?v7" charset="utf-8"></script>
+<script src="evo-msa.js?v8" charset="utf-8"></script>
+<script src="evo-model.js?v8" charset="utf-8"></script>
 <script src="evo-examples.js" charset="utf-8"></script>
 <script src="viewer3d.js" charset="utf-8"></script>
-<script src="benchmark.js" charset="utf-8"></script>
-<script src="app.js?v7d" charset="utf-8"></script>
+<script src="benchmark.js?v8" charset="utf-8"></script>
+<script src="app.js?v8c" charset="utf-8"></script>

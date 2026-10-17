@@ -104,8 +104,8 @@ pre { margin: 0; font-family: var(--font-mono); font-size: 11.5px; color: var(--
 <body>
 <div class="wrap">
   <header>
-    <h1><i>Cα</i> MSA network · retraining v7 (wider network)</h1>
-    <span class="sub" id="summary">2,651 → ~5,550 training proteins · 64/48 channels (was 48/32)</span>
+    <h1><i>Cα</i> MSA network · v8 · small and large proteins</h1>
+    <span class="sub" id="summary">~5,500 + ~900 new chains (10–49 and 251–400 residues) · fine-tuning v7</span>
     <div class="spacer"></div>
     <span class="pill" id="pill" data-s="run"><span class="dot"></span><span id="pill-text">Connecting…</span></span>
   </header>
@@ -138,7 +138,7 @@ pre { margin: 0; font-family: var(--font-mono); font-size: 11.5px; color: var(--
 
     <section class="card panel">
       <div class="head"><h2>Learning curves</h2>
-        <div class="legend"><span><i style="background:var(--accent)"></i>v7 training</span><span><i style="background:var(--val)"></i>v7 held-out</span><span><i class="dash"></i>v6 held-out (2,651 proteins)</span></div></div>
+        <div class="legend"><span><i style="background:var(--accent)"></i>v8 training</span><span><i style="background:var(--val)"></i>v8 held-out</span><span><i class="dash"></i>v7 held-out</span></div></div>
       <p class="note">Loss is how wrong the distance predictions are (lower is better), on the training proteins and on held-out proteins the network never trains on. The two runs hold out different proteins, so compare their shapes more than exact values.</p>
       <canvas id="loss"></canvas>
       <canvas id="acc"></canvas>
@@ -148,7 +148,7 @@ pre { margin: 0; font-family: var(--font-mono); font-size: 11.5px; color: var(--
 
   <section class="card panel">
     <div class="head"><h2>Benchmark: fold the six test proteins</h2><span class="sub" id="bench-sub">Runs after training</span></div>
-    <p class="note">Cα RMSD after folding with the current (v6) and new (v7) networks, app settings, 6 replicas, seed 11 shown (a second seed runs too). Chignolin and Trp-cage have no real alignment, so the network is not used for them. v7 is published only if it beats v6.</p>
+    <p class="note">Cα RMSD after folding with the current (v7) and new (v8) networks, app settings, 6 replicas, seed 11 shown (a second seed runs too). Chignolin and Trp-cage have no real alignment, so the network is not used for them. This round is scored from replica pools (3 seeds × 12 replicas); results come in the chat..</p>
     <div class="table-wrap"><table id="bench"></table></div>
   </section>
 
@@ -258,7 +258,7 @@ pre { margin: 0; font-family: var(--font-mono); font-size: 11.5px; color: var(--
     if (pr && S.train.state === 'running') bits.push(`<span>current batch loss <b>${pr.loss_dist.toFixed(3)}</b></span>`, `<span>training on <b>${fmtInt(pr.ntrain)}</b> proteins, <b>${fmtInt(pr.nval)}</b> held out</span>`);
     if (last) bits.push(`<span>held-out contacts <b>${pct(last.val.lr_p)}</b></span>`, `<span>held-out Q3 <b>${pct(last.val.q3)}</b></span>`);
     const v3 = (S.train.previous || []).reduce((a, r) => (!a || r.val.loss < a.val.loss ? r : a), null);
-    if (v3) bits.push(`<span>v6 best: <b>${pct(v3.val.lr_p)}</b> / <b>${pct(v3.val.q3)}</b></span>`);
+    if (v3) bits.push(`<span>v7 best: <b>${pct(v3.val.lr_p)}</b> / <b>${pct(v3.val.q3)}</b></span>`);
     $('step-read').innerHTML = bits.join('');
   }
 
@@ -277,7 +277,7 @@ pre { margin: 0; font-family: var(--font-mono); font-size: 11.5px; color: var(--
       return `<tr><td><b>${id}</b> ${names[id]}</td><td class="num">${cell(v2)}</td><td class="num">${cell(v3)}</td><td class="num">${v4 == null ? (S.train.state === 'done' ? 'folding…' : '–') : cell(v4)}</td><td class="num">${delta}</td></tr>`;
     }).join('');
     const mean = n4 === 4 ? `<tr><td><b>Mean</b></td><td class="num">${m2.toFixed(2)}</td><td class="num">${m3.toFixed(2)}</td><td class="num"><b>${(m4 / 4).toFixed(2)}</b></td><td class="num"><span class="${m4 / 4 < m3 - 0.2 ? 'up' : m4 / 4 > m3 + 0.2 ? 'down' : ''}">${(m4 / 4 - m3 > 0 ? '+' : '') + (m4 / 4 - m3).toFixed(2)}</span></td></tr>` : '';
-    $('bench').innerHTML = `<thead><tr><th>Protein</th><th class="num">v2 Å</th><th class="num">v6 Å</th><th class="num">v7 Å</th><th class="num">v7 − v6</th></tr></thead><tbody>${body}${mean}</tbody>`;
+    $('bench').innerHTML = `<thead><tr><th>Protein</th><th class="num">v2 Å</th><th class="num">v7 Å</th><th class="num">v8 Å</th><th class="num">v8 − v7</th></tr></thead><tbody>${body}${mean}</tbody>`;
     $('bench-sub').textContent = b.finished ? 'Finished' : rows.length ? `${rows.length} of 4 folded` : 'Runs after training';
   }
 
