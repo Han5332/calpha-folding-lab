@@ -498,6 +498,52 @@
     return hit / top.length;
   }
 
+  // ---------- precomputed results for built-in proteins (evo-feat.js) ----------
+  // FNV-1a over strings, as 8 hex digits: ties a stored result to the exact alignment rows and network weights.
+  function fingerprint(parts) {
+    let h = 0x811c9dc5;
+    for (const s of parts) {
+      for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+      h ^= 10; h = Math.imul(h, 0x01000193);
+    }
+    return (h >>> 0).toString(16).padStart(8, '0');
+  }
+  // Arrays are stored with their two bytes split into planes (all low bytes, then all high bytes), which compresses better.
+  function unshuffle16(bytes) {
+    const n = bytes.length >> 1, u16 = new Uint16Array(n);
+    for (let k = 0; k < n; k++) u16[k] = bytes[k] | (bytes[n + k] << 8);
+    return u16;
+  }
+  function unpackF16(bytes) {
+    const u16 = unshuffle16(bytes), out = new Float32Array(u16.length);
+    for (let k = 0; k < u16.length; k++) out[k] = f16(u16[k]);
+    return out;
+  }
+  // Rebuild the worker's result from a stored entry, given its decompressed byte arrays. The distogram covers pairs i ≤ j;
+  // bins 0–16 are codes of ln(p + 1e-4) — step `fine` where P(d < 20 Å) ≥ entry.cut (every pair that can become a
+  // restraint), step `coarse` elsewhere (display only) — delta-coded along the bins; bin 17 is 1 − the rest. SS, DCA, MI and
+  // conservation are float16. Returns null when the query, the alignment rows or the network weights differ.
+  function fromStored(entry, raw, query, rows, modelSpec) {
+    if (!entry || entry.seq !== query || entry.msa !== fingerprint(rows) || entry.model !== fingerprint([modelSpec.data])) return null;
+    const L = entry.L, P = L * (L + 1) / 2, eps = 1e-4, lo = Math.log(eps), codes = unshuffle16(raw.dist), mask = raw.fine;
+    if (codes.length !== P * (NB - 1) || mask.length !== Math.ceil(P / 8)) return null;
+    const dist = new Float32Array(L * L * NB);
+    for (let i = 0, k = 0; i < L; i++) for (let j = i; j < L; j++, k++) {
+      const step = (mask[k >> 3] >> (k & 7)) & 1 ? entry.fine : entry.coarse, a = (i * L + j) * NB, b = (j * L + i) * NB;
+      let c = 0, s = 0;
+      for (let o = 0; o < NB - 1; o++) {
+        const z = codes[k * (NB - 1) + o];
+        c += z & 1 ? -((z + 1) >> 1) : z >> 1;
+        const p = Math.max(0, Math.exp(lo + c * step) - eps);
+        dist[a + o] = dist[b + o] = p; s += p;
+      }
+      dist[a + NB - 1] = dist[b + NB - 1] = Math.max(0, 1 - s);
+    }
+    const d = unpackF16(raw.dca), m = unpackF16(raw.mi), dca = new Float32Array(L * L), mi = new Float32Array(L * L);
+    for (let i = 0, k = 0; i < L; i++) for (let j = i + 1; j < L; j++, k++) { dca[i * L + j] = dca[j * L + i] = d[k]; mi[i * L + j] = mi[j * L + i] = m[k]; }
+    return { L, neff: entry.neff, ss: unpackF16(raw.ss), dist, dca, mi, conservation: unpackF16(raw.cons) };
+  }
+
   root.Evo = { ALPH, NB, BIN_LO, MAX_SEQS, parseAlignment, alignToQuery, process, weights, features, loadModel, predict,
-    contactMap, expectedDistance, ssLabels, restraints, precision, spdInverse };
+    contactMap, expectedDistance, ssLabels, restraints, precision, spdInverse, fingerprint, unpackF16, fromStored };
 })(typeof self !== 'undefined' ? self : this);

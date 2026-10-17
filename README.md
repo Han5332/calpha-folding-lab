@@ -52,8 +52,11 @@ You can upload your own structure (`.pdb`, `.cif`/mmCIF, or either gzipped) or t
 alignment: the built-in proteins ship with one, and for anything else you upload an A3M or FASTA alignment (for example
 from the ColabFold MMseqs2 server). Without one, the protein folds with the knowledge-based force field alone.
 
-Big proteins take a while in the browser: for a 214-residue protein, coevolution and the network take about 3–4 minutes
-before folding starts, and folding itself runs for tens of minutes depending on the machine.
+The three large built-in proteins (CheY, T4 lysozyme, adenylate kinase) ship with their coevolution maps and network
+predictions precomputed in `evo-feat.js`, so they start folding within a few seconds; the stored result is used only when
+the sequence, the bundled alignment and the network weights all match it. Anything else runs the full pipeline in the
+browser, which for a ~200-residue protein takes 3–4 minutes before folding starts. Folding a large protein runs for tens
+of minutes depending on the machine.
 
 ## Files
 
@@ -66,6 +69,7 @@ before folding starts, and folding itself runs for tens of minutes depending on 
 | `evo.js`, `evo-worker.js` | Alignment processing, coevolution statistics, network inference |
 | `evo-model.js` | Network weights (float16, base64) |
 | `evo-msa.js` | Filtered alignments for the built-in proteins |
+| `evo-feat.js` | Precomputed coevolution maps and network predictions for the three large built-in proteins |
 | `evo-examples.js` | Saved best-prediction runs |
 | `kb.js` | Knowledge-based statistics |
 | `natives.js` | The ten built-in PDB structures |

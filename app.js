@@ -1106,7 +1106,7 @@
     if (evoWorker === false || typeof Worker === 'undefined') return null;
     if (evoWorker) return evoWorker;
     try {
-      evoWorker = new Worker('evo-worker.js?v8');
+      evoWorker = new Worker('evo-worker.js?v8d');
       evoWorker.onmessage = e => {
         const m = e.data, job = evoJobs.get(m.id);
         if (!job) return;
@@ -1198,8 +1198,8 @@
     const msaD = ready ? `${inp.source === 'built-in' ? fmtInt(ev.hits) + ' found, ' : fmtInt(ev.input) + ' read, '}filtered to ${fmtInt(ev.N - 1)}. Neff ${f1(ev.neff)} (${f2(ev.neff / L)} per residue)` : esc(inp.label || '');
     const steps = [
       ['1 · Alignment', msaB, msaD],
-      ['2 · Coevolution', ready ? `${fmtInt(20 * L)}² <small>matrix</small>` : 'DCA', ready ? `Mean-field DCA inverts the pair covariance; APC removes background. ${Math.round(ev.ms.dca)} ms` : 'Residues that mutate together are likely in contact'],
-      ['3 · Neural network', ready ? `${fmtInt(EVO_MODEL.params / 1000)}k <small>parameters</small>` : 'ResNet', ready ? `1D + 2D dilated residual CNN → 18-bin Cα distance histogram for ${fmtInt(L * (L - 1) / 2)} pairs. ${Math.round(ev.ms.net)} ms` : 'Distance histogram and secondary structure for every residue'],
+      ['2 · Coevolution', ready ? `${fmtInt(20 * L)}² <small>matrix</small>` : 'DCA', ready ? `Mean-field DCA inverts the pair covariance; APC removes background. ${ev.ms.stored ? 'Precomputed for this built-in protein.' : Math.round(ev.ms.dca) + ' ms'}` : 'Residues that mutate together are likely in contact'],
+      ['3 · Neural network', ready ? `${fmtInt(EVO_MODEL.params / 1000)}k <small>parameters</small>` : 'ResNet', ready ? `1D + 2D dilated residual CNN → 18-bin Cα distance histogram for ${fmtInt(L * (L - 1) / 2)} pairs. ${ev.ms.stored ? `Precomputed for this built-in protein; loaded in ${Math.round(ev.ms.net)} ms.` : Math.round(ev.ms.net) + ' ms'}` : 'Distance histogram and secondary structure for every residue'],
       ['4 · Restraints', ready ? (ev.shallow ? 'off <small>too few homologs</small>' : `${fmtInt(ev.rest.I.length)} <small>pair potentials</small>`) : '→ fold', ready ? (ev.shallow ? `Neff ${f1(ev.neff)} is below ${EVO_NEFF_MIN}, too little for the network to be trusted: folding uses fragment secondary structure and no AI restraints (the v2 inputs).` : 'Smooth −ln p(d)/p_ref(d) curves added to the force field of “MSA + AI”') : 'The predictions steer the folding run'],
     ];
     pipe.innerHTML = steps.map(([k, b, d], i) => `<div class="step" data-s="${st(i)}"><span class="k"><i></i>${k}</span><b>${b}</b><span class="d">${d}</span>${bar(i)}</div>`).join('');
