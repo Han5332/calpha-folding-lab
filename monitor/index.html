@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Training Monitor</title>
+<style>
+/* Live view of the MSA-network retraining: pipeline stages, learning curves, and contact maps sharpening per epoch. */
+:root {
+  --bg: #f3f4f6; --panel: #ffffff; --panel-2: #f7f8fa; --sunken: #eef0f3;
+  --ink: #0d1117; --ink-2: #4b5563; --muted: #858d9b; --line: #e4e7eb; --line-strong: #d3d7dd; --grid: #eceef1;
+  --accent: #2b5fd9; --accent-soft: #e8eefc; --prev: #a3abb7; --val: #eb6834;
+  --heat-lo: #f3f7fb; --heat-hi: #0d366b; --native: #b7bfc8;
+  --good: #0ca30c; --warn: #c98500; --bad: #d03b3b;
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.05), 0 10px 30px -18px rgba(16, 24, 40, 0.25);
+  --font-ui: Arial, Helvetica, sans-serif;
+  --font-mono: Arial, Helvetica, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0a0b0d; --panel: #121418; --panel-2: #171a1f; --sunken: #0e1013;
+    --ink: #eceff3; --ink-2: #a3abb7; --muted: #6f7886; --line: #22262d; --line-strong: #2d323a; --grid: #1b1f25;
+    --accent: #7393ff; --accent-soft: #1a2240; --prev: #4a5560; --val: #f08a5d;
+    --heat-lo: #141b22; --heat-hi: #b7d3f6; --native: #4a5560;
+    --good: #2fbf4f; --warn: #fab219; --bad: #e66767;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 30px -18px rgba(0, 0, 0, 0.7);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0a0b0d; --panel: #121418; --panel-2: #171a1f; --sunken: #0e1013;
+  --ink: #eceff3; --ink-2: #a3abb7; --muted: #6f7886; --line: #22262d; --line-strong: #2d323a; --grid: #1b1f25;
+  --accent: #7393ff; --accent-soft: #1a2240; --prev: #4a5560; --val: #f08a5d;
+  --heat-lo: #141b22; --heat-hi: #b7d3f6; --native: #4a5560;
+  --good: #2fbf4f; --warn: #fab219; --bad: #e66767;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 30px -18px rgba(0, 0, 0, 0.7);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; background: var(--bg); }
+body { color: var(--ink); font-family: var(--font-ui); font-size: 14px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+h1, h2, h3 { margin: 0; font-weight: 500; text-wrap: balance; }
+button, input { font: inherit; color: inherit; }
+.mono { font-family: var(--font-mono); }
+.wrap { max-width: 1280px; margin: 0 auto; padding: 18px 20px 48px; display: flex; flex-direction: column; gap: 16px; }
+@media (max-width: 520px) { .wrap { padding-inline: 16px; } }
+header { display: flex; align-items: center; gap: 10px 18px; flex-wrap: wrap; }
+header h1 { font-size: 18px; letter-spacing: -0.01em; }
+header h1 i { font-style: normal; font-family: var(--font-mono); color: var(--accent); }
+.sub { color: var(--ink-2); font-size: 13px; }
+.spacer { flex: 1; }
+.pill { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); font-size: 12.5px; color: var(--ink-2); white-space: nowrap; }
+.pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.pill[data-s="done"] .dot { background: var(--good); animation: none; }
+.pill[data-s="stale"] .dot { background: var(--warn); animation: none; }
+@keyframes pulse { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .pill .dot, .stage[data-s="run"] .k i { animation: none; } }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); min-width: 0; }
+.stages { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 960px) { .stages { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .stages { grid-template-columns: minmax(0, 1fr); } }
+.stage { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 4px; position: relative; overflow: hidden; }
+.stage .k { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
+.stage .k i { width: 7px; height: 7px; border-radius: 50%; background: var(--line-strong); }
+.stage[data-s="run"] .k i { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.stage[data-s="done"] .k i { background: var(--good); }
+.stage b { font-size: 24px; font-weight: 500; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.stage b small { font-size: 13px; color: var(--ink-2); font-weight: 500; letter-spacing: 0; }
+.stage .d { font-size: 12px; color: var(--ink-2); }
+.bar { height: 4px; border-radius: 2px; background: var(--grid); margin-top: 6px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.4s; }
+.stage[data-s="done"] .bar i { background: var(--good); }
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 960px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+.panel { padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px 14px; flex-wrap: wrap; }
+.head h2 { font-size: 15px; }
+.note { margin: 0; font-size: 12.5px; color: var(--muted); max-width: 72ch; }
+.seg { display: inline-grid; grid-auto-flow: column; background: var(--sunken); border: 1px solid var(--line); border-radius: 10px; padding: 3px; gap: 3px; }
+.seg button { border: 0; background: transparent; padding: 5px 10px; border-radius: 7px; cursor: pointer; font-size: 12.5px; font-weight: 500; color: var(--ink-2); }
+.seg button[aria-pressed="true"] { background: var(--panel); color: var(--ink); box-shadow: 0 1px 2px rgba(16, 24, 40, 0.12); }
+.player { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.player input { width: 100%; accent-color: var(--accent); }
+.btn { border: 1px solid var(--line-strong); background: var(--panel); padding: 6px 12px; border-radius: 9px; cursor: pointer; font-weight: 500; font-size: 13px; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.readout { display: flex; gap: 6px 16px; flex-wrap: wrap; font-size: 12.5px; color: var(--ink-2); }
+.readout b { color: var(--ink); font-family: var(--font-mono); font-weight: 500; }
+.empty { display: grid; place-items: center; text-align: center; padding: 40px 16px; color: var(--muted); font-size: 13px; background: var(--panel-2); border: 1px dashed var(--line-strong); border-radius: 11px; }
+canvas { display: block; max-width: 100%; }
+.legend { display: flex; gap: 6px 14px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 16px; height: 2px; border-radius: 1px; display: inline-block; }
+.legend i.dash { background: repeating-linear-gradient(90deg, var(--prev) 0 4px, transparent 4px 7px) !important; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th { text-align: left; font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 8px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+td.num, th.num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+td .up { color: var(--good); } td .down { color: var(--bad); }
+.table-wrap { overflow-x: auto; }
+pre { margin: 0; font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-2); white-space: pre-wrap; max-height: 140px; overflow: auto; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1><i>Cα</i> MSA network · retraining v7 (wider network)</h1>
+    <span class="sub" id="summary">2,651 → ~5,550 training proteins · 64/48 channels (was 48/32)</span>
+    <div class="spacer"></div>
+    <span class="pill" id="pill" data-s="run"><span class="dot"></span><span id="pill-text">Connecting…</span></span>
+  </header>
+
+  <section class="stages" aria-label="Pipeline stages">
+    <div class="card stage" id="st-align"><span class="k"><i></i>1 · Alignments</span><b id="al-b">–</b><span class="d" id="al-d"></span><div class="bar"><i id="al-bar"></i></div></div>
+    <div class="card stage" id="st-feat"><span class="k"><i></i>2 · Features</span><b id="fe-b">–</b><span class="d" id="fe-d"></span><div class="bar"><i id="fe-bar"></i></div></div>
+    <div class="card stage" id="st-train"><span class="k"><i></i>3 · Training</span><b id="tr-b">–</b><span class="d" id="tr-d"></span><div class="bar"><i id="tr-bar"></i></div></div>
+    <div class="card stage" id="st-bench"><span class="k"><i></i>4 · Benchmark</span><b id="be-b">–</b><span class="d" id="be-d"></span><div class="bar"><i id="be-bar"></i></div></div>
+  </section>
+
+  <div class="grid">
+    <section class="card panel">
+      <div class="head"><h2>Watch it learn</h2>
+        <div class="seg" id="prot-seg" role="group" aria-label="Protein">
+          <button type="button" data-p="1UBQ" aria-pressed="true">Ubiquitin</button>
+          <button type="button" data-p="1PGA" aria-pressed="false">GB1</button>
+          <button type="button" data-p="1ENH" aria-pressed="false">Homeodomain</button>
+        </div></div>
+      <p class="note">The network's predicted contacts for a test protein it never trained on, after each epoch. Upper right: predicted chance that two residues are within 8 Å. Lower left: the real contacts from the PDB, with the top predictions marked right (filled) or wrong (rings).</p>
+      <div id="map-empty" class="empty">Snapshots start when training begins.<br>Epoch 0 is the untrained network: pure noise.</div>
+      <canvas id="map" hidden></canvas>
+      <div class="player" id="player" hidden>
+        <button class="btn" id="play" type="button" aria-label="Play epochs">Play</button>
+        <input type="range" id="epoch" min="0" max="0" value="0" aria-label="Epoch">
+        <span class="mono" id="epoch-out">epoch 0</span>
+      </div>
+      <div class="readout" id="map-read"></div>
+    </section>
+
+    <section class="card panel">
+      <div class="head"><h2>Learning curves</h2>
+        <div class="legend"><span><i style="background:var(--accent)"></i>v7 training</span><span><i style="background:var(--val)"></i>v7 held-out</span><span><i class="dash"></i>v6 held-out (2,651 proteins)</span></div></div>
+      <p class="note">Loss is how wrong the distance predictions are (lower is better), on the training proteins and on held-out proteins the network never trains on. The two runs hold out different proteins, so compare their shapes more than exact values.</p>
+      <canvas id="loss"></canvas>
+      <canvas id="acc"></canvas>
+      <div class="readout" id="step-read"></div>
+    </section>
+  </div>
+
+  <section class="card panel">
+    <div class="head"><h2>Benchmark: fold the six test proteins</h2><span class="sub" id="bench-sub">Runs after training</span></div>
+    <p class="note">Cα RMSD after folding with the current (v6) and new (v7) networks, app settings, 6 replicas, seed 11 shown (a second seed runs too). Chignolin and Trp-cage have no real alignment, so the network is not used for them. v7 is published only if it beats v6.</p>
+    <div class="table-wrap"><table id="bench"></table></div>
+  </section>
+
+  <section class="card panel">
+    <div class="head"><h2>Run log</h2><span class="sub mono" id="updated"></span></div>
+    <pre id="log">Waiting for the first status update…</pre>
+  </section>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue('--' + n).trim();
+  const fmtInt = n => Math.round(n).toLocaleString('en-US');
+  const clock = t => new Date(t * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const dur = s => (s < 90 ? Math.round(s) + ' s' : s < 5400 ? Math.round(s / 60) + ' min' : (s / 3600).toFixed(1) + ' h');
+  const pct = v => Math.round(v * 100) + '%';
+  let S = null, snaps = null, snapEpochs = -1, prot = '1UBQ', epochSel = null, playing = null;
+  const stepHist = [];
+
+  function setup(canvas, h) {
+    const w = Math.floor(canvas.parentElement.clientWidth - 32), dpr = window.devicePixelRatio || 1;
+    canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    const ctx = canvas.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+    return { ctx, w, h };
+  }
+  function stage(id, state, big, detail, frac) {
+    const el = $(id); el.dataset.s = state;
+    el.querySelector('b').innerHTML = big; el.querySelector('.d').textContent = detail;
+    el.querySelector('.bar i').style.width = (100 * Math.max(0, Math.min(1, frac))).toFixed(1) + '%';
+  }
+
+  function render() {
+    if (!S) return;
+    const a = S.align, f = S.features, t = S.train, b = S.bench, now = S.now;
+    const aDone = a.done >= a.total;
+    stage('st-align', aDone ? 'done' : 'run', `${fmtInt(a.done)} <small>/ ${fmtInt(a.total)}</small>`,
+      aDone ? 'All alignments in (ColabFold MMseqs2)' : `${a.rate ? Math.round(a.rate) + ' per hour' : '…'}${a.eta ? ` · done ≈ ${clock(a.eta)}` : ''}${a.queue != null ? ` · server queue ${a.queue}` : ''}`, a.done / a.total);
+    stage('st-feat', f.finished ? 'done' : f.done ? 'run' : 'wait', `${fmtInt(f.done)} <small>/ ${fmtInt(f.total)} new</small>`,
+      f.finished ? `${fmtInt(f.done + f.old)} proteins ready for training` : `Coevolution + profiles, plus ${fmtInt(f.old)} from earlier rounds`, f.done / f.total);
+    const ep = t.epochs, pr = t.progress;
+    if (t.state === 'waiting') stage('st-train', 'wait', 'waiting', 'Starts when all features are ready', 0);
+    else {
+      const E = pr ? pr.epochs : 15, k = ep.length, frac = t.state === 'done' ? 1 : pr ? ((pr.epoch - 1) + pr.step / pr.steps) / E : k / E;
+      let eta = '';
+      if (t.state === 'running' && pr && frac > 0.02) eta = ` · done ≈ ${clock(pr.started + (now - pr.started) / frac)}`;
+      stage('st-train', t.state === 'done' ? 'done' : 'run', t.state === 'done' ? 'done' : `epoch ${pr ? pr.epoch : k + 1} <small>/ ${E}</small>`,
+        t.state === 'done' ? `${ep.length} epochs, best held-out loss ${Math.min(...ep.map(r => r.val.loss)).toFixed(3)}` : `${pr ? `step ${fmtInt(pr.step)} / ${fmtInt(pr.steps)}` : 'compiling GPU kernels'}${eta}`, frac);
+    }
+    stage('st-bench', b.finished ? 'done' : b.rows.length || t.state === 'done' ? 'run' : 'wait', `${b.rows.length} <small>/ 4 proteins</small>`,
+      b.finished ? 'Comparison ready below' : t.state === 'done' ? 'Folding 4 proteins × 2 seeds × 2 networks' : 'Runs after training', b.rows.length / 4);
+    const pill = $('pill'), stale = Date.now() / 1000 - now > 90;
+    pill.dataset.s = stale ? 'stale' : b.finished ? 'done' : 'run';
+    $('pill-text').textContent = stale ? 'No update for ' + dur(Date.now() / 1000 - now) : b.finished ? 'Finished' : !aDone ? 'Fetching alignments' : !f.finished ? 'Extracting features' : t.state !== 'done' ? 'Training on GPU' : 'Benchmarking';
+    $('updated').textContent = 'updated ' + clock(now);
+    $('log').textContent = (S.chain || '').trim() || 'Background chain is waiting for the features to finish.';
+    if (pr && pr.time && (!stepHist.length || stepHist[stepHist.length - 1].time !== pr.time)) stepHist.push(pr);
+    drawCurves(); drawBench(); renderStep();
+  }
+
+  function lineChart(canvas, h, series, opts) {
+    const { ctx, w } = setup(canvas, h);
+    const pad = { l: 44, r: 12, t: 18, b: 26 }, X0 = pad.l, X1 = w - pad.r, Y0 = pad.t, Y1 = h - pad.b;
+    const xs = series.flatMap(s => s.pts.map(p => p[0])), ys = series.flatMap(s => s.pts.map(p => p[1]));
+    if (!ys.length) { ctx.fillStyle = css('muted'); ctx.font = `12.5px ${css('font-ui')}`; ctx.fillText(opts.empty, X0, Y0 + 30); return; }
+    const xmax = Math.max(opts.xmin + 1, ...xs, opts.xmax || 0), ymin = opts.ymin != null ? opts.ymin : Math.min(...ys), ymax = opts.ymax != null ? opts.ymax : Math.max(...ys);
+    const lo = ymin - (ymax - ymin) * 0.08, hi = ymax + (ymax - ymin) * 0.08 || ymin + 1;
+    const X = v => X0 + (v - opts.xmin) / (xmax - opts.xmin) * (X1 - X0), Y = v => Y1 - (v - lo) / (hi - lo) * (Y1 - Y0);
+    ctx.font = `11px ${css('font-mono')}`; ctx.fillStyle = css('muted'); ctx.strokeStyle = css('grid'); ctx.lineWidth = 1;
+    for (let k = 0; k <= 4; k++) {
+      const v = lo + (hi - lo) * k / 4, y = Y(v);
+      ctx.beginPath(); ctx.moveTo(X0, y + 0.5); ctx.lineTo(X1, y + 0.5); ctx.stroke();
+      ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillText(opts.fmt(v), X0 - 6, y);
+    }
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    const step = xmax > 12 ? 5 : xmax > 6 ? 2 : 1;
+    ctx.fillText(String(opts.xmin), X(opts.xmin), Y1 + 6);
+    for (let v = step; v <= xmax; v += step) if (v - opts.xmin >= step / 2) ctx.fillText(String(v), X(v), Y1 + 6);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillStyle = css('ink-2'); ctx.font = `500 12px ${css('font-ui')}`; ctx.fillText(opts.title, X0, 0);
+    for (const s of series) {
+      if (!s.pts.length) continue;
+      ctx.strokeStyle = css(s.color); ctx.lineWidth = s.dash ? 1.5 : 2; ctx.setLineDash(s.dash ? [4, 3] : []);
+      ctx.beginPath(); s.pts.forEach((p, k) => (k ? ctx.lineTo(X(p[0]), Y(p[1])) : ctx.moveTo(X(p[0]), Y(p[1])))); ctx.stroke(); ctx.setLineDash([]);
+      if (!s.dash) { ctx.fillStyle = css(s.color); for (const p of s.pts) { ctx.beginPath(); ctx.arc(X(p[0]), Y(p[1]), 2.5, 0, 2 * Math.PI); ctx.fill(); } }
+      if (s.label) { const p = s.pts[s.pts.length - 1]; ctx.fillStyle = css(s.color); ctx.font = `11px ${css('font-ui')}`; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom'; ctx.fillText(s.label, X(p[0]) - 4, Y(p[1]) - 4); }
+    }
+  }
+  function drawCurves() {
+    const ep = S.train.epochs, prev = S.train.previous || [];
+    lineChart($('loss'), 220, [
+      { pts: prev.map(r => [r.epoch, r.val.loss]), color: 'prev', dash: true },
+      { pts: ep.map(r => [r.epoch, r.train_dist]), color: 'accent' },
+      { pts: ep.map(r => [r.epoch, r.val.loss]), color: 'val' },
+    ], { xmin: 1, xmax: 15, fmt: v => v.toFixed(2), title: 'Distance loss per epoch', empty: '' });
+    lineChart($('acc'), 200, [
+      { pts: prev.map(r => [r.epoch, r.val.lr_p]), color: 'prev', dash: true },
+      { pts: prev.map(r => [r.epoch, r.val.q3]), color: 'prev', dash: true },
+      { pts: ep.map(r => [r.epoch, r.val.lr_p]), color: 'val', label: 'contacts' },
+      { pts: ep.map(r => [r.epoch, r.val.q3]), color: 'accent', label: 'sec. structure' },
+    ], { xmin: 1, xmax: 15, ymin: 0.2, ymax: 0.9, fmt: v => pct(v), title: 'Held-out accuracy: contact precision and Q3', empty: '' });
+  }
+  function renderStep() {
+    const pr = S.train.progress, ep = S.train.epochs, last = ep[ep.length - 1];
+    const bits = [];
+    if (pr && S.train.state === 'running') bits.push(`<span>current batch loss <b>${pr.loss_dist.toFixed(3)}</b></span>`, `<span>training on <b>${fmtInt(pr.ntrain)}</b> proteins, <b>${fmtInt(pr.nval)}</b> held out</span>`);
+    if (last) bits.push(`<span>held-out contacts <b>${pct(last.val.lr_p)}</b></span>`, `<span>held-out Q3 <b>${pct(last.val.q3)}</b></span>`);
+    const v3 = (S.train.previous || []).reduce((a, r) => (!a || r.val.loss < a.val.loss ? r : a), null);
+    if (v3) bits.push(`<span>v6 best: <b>${pct(v3.val.lr_p)}</b> / <b>${pct(v3.val.q3)}</b></span>`);
+    $('step-read').innerHTML = bits.join('');
+  }
+
+  function drawBench() {
+    const b = S.bench, rows = b.rows, ids = ['1YRF', '1ENH', '1PGA', '1UBQ'];
+    const names = { '1UAO': 'Chignolin', '1L2Y': 'Trp-cage', '1YRF': 'Villin headpiece', '1ENH': 'Engrailed homeodomain', '1PGA': 'Protein G (GB1)', '1UBQ': 'Ubiquitin' };
+    const by = {}; rows.forEach(r => { by[r.id] = r; });
+    const cell = v => (v == null ? '–' : v.toFixed(2));
+    let m2 = 0, m3 = 0, m4 = 0, n4 = 0;
+    const body = ids.map(id => {
+      const r = by[id], v2 = b.v2[id], v3 = b.v3[id] ? b.v3[id].rmsd : null, v4 = r ? r.eRmsd : null;
+      m2 += v2 / 4; m3 += (v3 || 0) / 4;
+      if (v4 != null) { m4 += v4; n4++; }
+      const d = v4 != null && v3 != null ? v4 - v3 : null;
+      const delta = d == null ? '' : `<span class="${d < -0.3 ? 'up' : d > 0.3 ? 'down' : ''}">${d > 0 ? '+' : ''}${d.toFixed(2)}</span>`;
+      return `<tr><td><b>${id}</b> ${names[id]}</td><td class="num">${cell(v2)}</td><td class="num">${cell(v3)}</td><td class="num">${v4 == null ? (S.train.state === 'done' ? 'folding…' : '–') : cell(v4)}</td><td class="num">${delta}</td></tr>`;
+    }).join('');
+    const mean = n4 === 4 ? `<tr><td><b>Mean</b></td><td class="num">${m2.toFixed(2)}</td><td class="num">${m3.toFixed(2)}</td><td class="num"><b>${(m4 / 4).toFixed(2)}</b></td><td class="num"><span class="${m4 / 4 < m3 - 0.2 ? 'up' : m4 / 4 > m3 + 0.2 ? 'down' : ''}">${(m4 / 4 - m3 > 0 ? '+' : '') + (m4 / 4 - m3).toFixed(2)}</span></td></tr>` : '';
+    $('bench').innerHTML = `<thead><tr><th>Protein</th><th class="num">v2 Å</th><th class="num">v6 Å</th><th class="num">v7 Å</th><th class="num">v7 − v6</th></tr></thead><tbody>${body}${mean}</tbody>`;
+    $('bench-sub').textContent = b.finished ? 'Finished' : rows.length ? `${rows.length} of 4 folded` : 'Runs after training';
+  }
+
+  function drawMap() {
+    if (!snaps || !snaps.epochs.length) return;
+    const P = snaps.proteins[prot], L = P.L, k = epochSel == null ? snaps.epochs.length - 1 : epochSel, E = snaps.epochs[k], M = E.maps[prot];
+    $('map-empty').hidden = true; $('map').hidden = false; $('player').hidden = false;
+    const c = $('map'), W = Math.min(Math.floor(c.parentElement.clientWidth - 32), 520);
+    const dpr = window.devicePixelRatio || 1; c.style.width = W + 'px'; c.style.height = W + 'px'; c.width = W * dpr; c.height = W * dpr;
+    const ctx = c.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, W);
+    const cs = W / L, lo = hex(css('heat-lo')), hi = hex(css('heat-hi')), nat = css('native');
+    for (let i = 0; i < L; i++) for (let j = i + 1; j < L; j++) {
+      const v = M[i * L + j] / 99, col = lo.map((a, q) => Math.round(a + (hi[q] - a) * v));
+      ctx.fillStyle = `rgb(${col})`; ctx.fillRect(j * cs, i * cs, Math.ceil(cs), Math.ceil(cs));
+    }
+    ctx.fillStyle = nat;
+    for (let i = 0; i < L; i++) for (let j = i + 3; j < L; j++) if (P.native[i * L + j]) ctx.fillRect(i * cs, j * cs, Math.ceil(cs), Math.ceil(cs));
+    const cand = [];
+    for (let i = 0; i < L; i++) for (let j = i + 6; j < L; j++) cand.push([M[i * L + j], i, j]);
+    cand.sort((x, y) => y[0] - x[0]);
+    const top = cand.slice(0, L);
+    let hits = 0;
+    for (const [, i, j] of top) {
+      const ok = P.native[i * L + j] === 1; if (ok) hits++;
+      ctx.beginPath(); ctx.arc((i + 0.5) * cs, (j + 0.5) * cs, Math.max(1.6, cs * 0.42), 0, 2 * Math.PI);
+      if (ok) { ctx.fillStyle = css('good'); ctx.fill(); } else { ctx.strokeStyle = css('bad'); ctx.lineWidth = 1.2; ctx.stroke(); }
+    }
+    ctx.strokeStyle = css('line'); ctx.strokeRect(0.5, 0.5, W - 1, W - 1);
+    ctx.strokeStyle = css('muted'); ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(W, W); ctx.stroke();
+    let far = 0, farHit = 0;
+    const lr = cand.filter(x => x[2] - x[1] >= 12).slice(0, Math.max(1, L >> 1));
+    for (const [, i, j] of lr) { far++; if (P.native[i * L + j]) farHit++; }
+    $('epoch').max = String(snaps.epochs.length - 1); $('epoch').value = String(k);
+    $('epoch-out').textContent = E.epoch === 0 ? 'untrained' : `epoch ${E.epoch}`;
+    $('map-read').innerHTML = `<span>top ${L} pairs ≥ 6 apart: <b>${hits}</b> correct</span><span>long-range precision (top L/2, ≥ 12 apart): <b>${far ? pct(farHit / far) : '–'}</b></span>`;
+  }
+  function hex(h) { h = h.replace('#', ''); if (h.length === 3) h = h.split('').map(c => c + c).join(''); const n = parseInt(h, 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+
+  async function poll() {
+    try {
+      const r = await fetch('status.json?t=' + Date.now(), { cache: 'no-store' });
+      if (r.ok) { S = await r.json(); render(); }
+      const n = S && S.train ? S.train.epochs.length + (S.train.state === 'waiting' ? -1 : 0) : -1;
+      if (S && S.train.state !== 'waiting' && n !== snapEpochs) {
+        const q = await fetch('snapshots.json?t=' + Date.now(), { cache: 'no-store' });
+        if (q.ok) { snaps = await q.json(); snapEpochs = n; if (playing == null) epochSel = null; drawMap(); }
+      }
+    } catch (e) { /* server not reachable yet; the pill turns amber after 90 s */ }
+    setTimeout(poll, 5000);
+  }
+  document.querySelectorAll('#prot-seg button').forEach(b => b.addEventListener('click', () => {
+    prot = b.dataset.p;
+    document.querySelectorAll('#prot-seg button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+    drawMap();
+  }));
+  $('epoch').addEventListener('input', e => { epochSel = +e.target.value; drawMap(); });
+  $('play').addEventListener('click', () => {
+    if (!snaps) return;
+    if (playing) { clearInterval(playing); playing = null; $('play').textContent = 'Play'; return; }
+    epochSel = 0; drawMap(); $('play').textContent = 'Pause';
+    playing = setInterval(() => {
+      if (epochSel >= snaps.epochs.length - 1) { clearInterval(playing); playing = null; $('play').textContent = 'Play'; epochSel = null; return; }
+      epochSel++; drawMap();
+    }, 700);
+  });
+  new ResizeObserver(() => { if (S) render(); drawMap(); }).observe(document.querySelector('.grid'));
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (S) render(); drawMap(); });
+  poll();
+})();
+</script>
+</body>
+</html>

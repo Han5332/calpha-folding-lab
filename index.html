@@ -1,0 +1,533 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cα Folding Lab</title>
+<style>
+/* Layout: a settings rail, a large journal-style 3D stage with the scorecard beside it, and analysis tabs below. */
+:root {
+  --bg: #f3f4f6; --panel: #ffffff; --panel-2: #f7f8fa; --sunken: #eef0f3;
+  --ink: #0d1117; --ink-2: #4b5563; --muted: #858d9b; --line: #e4e7eb; --line-strong: #d3d7dd; --grid: #eceef1;
+  --accent: #2b5fd9; --accent-soft: #e8eefc; --stage: #ffffff;
+  --model: #2a78d6; --native: #eb6834; --helix: #4a3aa7; --strand: #1baf7a; --coil: #b7bfc8;
+  --heat-lo: #f3f7fb; --heat-hi: #0d366b; --ramp-a: #86b6ef; --ramp-b: #0d366b;
+  --good: #0ca30c; --warn: #c98500; --bad: #d03b3b;
+  --btn: #0d1117; --btn-ink: #ffffff;
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.05), 0 10px 30px -18px rgba(16, 24, 40, 0.25);
+  --glass: rgba(255, 255, 255, 0.82);
+  --font-ui: Arial, Helvetica, sans-serif;
+  --font-mono: Arial, Helvetica, sans-serif;
+  --r: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0a0b0d; --panel: #121418; --panel-2: #171a1f; --sunken: #0e1013;
+    --ink: #eceff3; --ink-2: #a3abb7; --muted: #6f7886; --line: #22262d; --line-strong: #2d323a; --grid: #1b1f25;
+    --accent: #7393ff; --accent-soft: #1a2240; --stage: #0b0d11;
+    --model: #3987e5; --native: #d95926; --helix: #9085e9; --strand: #199e70; --coil: #4a5560;
+    --heat-lo: #141b22; --heat-hi: #b7d3f6; --ramp-a: #1c5cab; --ramp-b: #cde2fb;
+    --good: #0ca30c; --warn: #fab219; --bad: #e66767; --btn: #eceff3; --btn-ink: #0a0b0d;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 30px -18px rgba(0, 0, 0, 0.7); --glass: rgba(18, 20, 24, 0.8);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0a0b0d; --panel: #121418; --panel-2: #171a1f; --sunken: #0e1013;
+  --ink: #eceff3; --ink-2: #a3abb7; --muted: #6f7886; --line: #22262d; --line-strong: #2d323a; --grid: #1b1f25;
+  --accent: #7393ff; --accent-soft: #1a2240; --stage: #0b0d11;
+  --model: #3987e5; --native: #d95926; --helix: #9085e9; --strand: #199e70; --coil: #4a5560;
+  --heat-lo: #141b22; --heat-hi: #b7d3f6; --ramp-a: #1c5cab; --ramp-b: #cde2fb;
+  --good: #0ca30c; --warn: #fab219; --bad: #e66767; --btn: #eceff3; --btn-ink: #0a0b0d;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 30px -18px rgba(0, 0, 0, 0.7); --glass: rgba(18, 20, 24, 0.8);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { background: var(--bg); }
+body { color: var(--ink); font-family: var(--font-ui); font-size: 14px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+h1, h2, h3 { margin: 0; text-wrap: balance; font-weight: 500; }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mono { font-family: var(--font-mono); }
+
+/* ---------- app bar ---------- */
+.appbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; display: flex; align-items: center; gap: 12px 20px; flex-wrap: nowrap;
+  padding-block: 10px; padding-inline: 20px; background: color-mix(in srgb, var(--bg) 86%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
+.brand { display: flex; align-items: center; gap: 10px; flex: none; }
+.brand svg { width: 28px; height: 28px; flex: none; }
+.brand b { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; }
+.brand b i { font-style: normal; font-family: var(--font-mono); color: var(--accent); font-weight: 500; }
+.crumb { color: var(--ink-2); font-size: 13px; min-width: 0; flex: 0 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.appbar .status { flex: 0 1 auto; min-width: 0; overflow: hidden; }
+.appbar .status span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.appbar .btn.primary { flex: none; }
+@media (max-height: 540px) { .appbar { position: static; } .sidebar { top: 12px; max-height: calc(100vh - 24px); } }
+.crumb b { color: var(--ink); font-weight: 500; }
+.spacer { flex: 1; }
+@media (max-width: 640px) {
+  .crumb { display: none; }
+  .appbar { gap: 8px; flex-wrap: nowrap; padding-block: 8px; }
+  .brand { flex: none; }
+  .status { padding: 4px 9px; min-width: 0; flex: 0 1 auto; overflow: hidden; }
+  .status span:last-child { overflow: hidden; text-overflow: ellipsis; }
+  .appbar .btn.primary { padding: 7px 12px; flex: none; }
+}
+@media (max-width: 400px) { .brand b { font-size: 0; } .brand b i { font-size: 15px; } .brand b::after { content: " Lab"; font-size: 15px; } }
+.status { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); font-size: 12.5px; color: var(--ink-2); white-space: nowrap; }
+.status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.status[data-state="running"] .dot { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.status[data-state="done"] .dot { background: var(--good); }
+@keyframes pulse { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .status[data-state="running"] .dot { animation: none; } }
+
+.btn { border: 1px solid var(--line-strong); background: var(--panel); color: var(--ink); padding: 7px 13px; border-radius: 9px; cursor: pointer; font-weight: 500; font-size: 13px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px; white-space: nowrap; transition: background 0.12s, border-color 0.12s; }
+.btn:hover { background: var(--panel-2); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn.primary { background: var(--btn); color: var(--btn-ink); border-color: var(--btn); padding: 8px 16px; }
+.btn.primary:hover { opacity: 0.88; }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--ink-2); }
+.btn.ghost:hover { background: var(--sunken); color: var(--ink); }
+.btn svg { width: 15px; height: 15px; }
+.btn.file { position: relative; overflow: hidden; }
+.btn.file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.iconbtn { width: 32px; height: 32px; padding: 0; border-radius: 8px; }
+
+/* ---------- layout ---------- */
+.layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 18px; padding-inline: 20px; padding-block: 18px 48px; max-width: 1640px; margin: 0 auto; align-items: start; }
+@media (max-width: 1080px) {
+  /* narrow screens: structure first, then settings, then the analysis tabs */
+  .layout { display: flex; flex-direction: column; align-items: stretch; }
+  .layout > main { display: contents; }
+  .hero { order: 1; } .sidebar { order: 2; } .tabs { order: 3; } [data-panel] { order: 4; }
+}
+@media (max-width: 520px) { .layout, .appbar { padding-inline: 16px; } }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); min-width: 0; }
+
+/* ---------- sidebar ---------- */
+.sidebar { display: flex; flex-direction: column; gap: 14px; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 72px); max-height: calc(100vh - 90px); overflow: auto; padding-bottom: 4px; scrollbar-width: thin; }
+@media (max-width: 1080px) { .sidebar { position: static; max-height: none; overflow: visible; } }
+.side { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.side h2, .eyebrow { font-size: 11.5px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.plist { display: flex; flex-direction: column; gap: 2px; }
+@media (max-width: 1080px) and (min-width: 521px) { .plist { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; } }
+@media (max-width: 520px) { .plist { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; } }
+.prot { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 1px 10px; align-items: center; text-align: left; padding: 8px 10px; border-radius: 10px; border: 1px solid transparent; background: transparent; cursor: pointer; }
+.prot:hover { background: var(--panel-2); }
+.prot[aria-checked="true"] { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.prot .pid { grid-row: span 2; font-family: var(--font-mono); font-size: 11px; font-weight: 500; color: var(--ink-2); background: var(--sunken); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
+.prot[aria-checked="true"] .pid { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); background: var(--panel); }
+.prot .pname { font-weight: 500; font-size: 13.5px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pitem { position: relative; min-width: 0; }
+.pitem .prot { width: 100%; }
+.prot.haslink { padding-right: 34px; }
+.plink { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 24px; height: 24px; display: grid; place-items: center; border-radius: 6px; color: var(--muted); }
+.plink svg { width: 14px; height: 14px; }
+.plink:hover { color: var(--accent); background: var(--panel); }
+.plink:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.prot .pmeta { color: var(--muted); font-size: 12px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 1080px) { .prot { grid-template-columns: minmax(0, 1fr); } .prot .pid { grid-row: auto; justify-self: start; } }
+.row { display: flex; gap: 8px; flex-wrap: wrap; }
+.note { margin: 0; font-size: 12px; color: var(--muted); }
+.note.err { color: var(--bad); }
+.methods { display: flex; flex-direction: column; gap: 6px; }
+.method { text-align: left; border: 1px solid var(--line); background: var(--panel); border-radius: 11px; padding: 10px 12px; cursor: pointer; display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 2px 10px; }
+.method:hover { border-color: var(--line-strong); }
+.method[aria-checked="true"] { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.method:disabled { opacity: 0.45; cursor: not-allowed; }
+.method .radio { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--line-strong); margin-top: 2px; display: grid; place-items: center; }
+.method[aria-checked="true"] .radio { border-color: var(--accent); }
+.method[aria-checked="true"] .radio::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.method b { font-weight: 500; font-size: 13.5px; }
+.method span.d { grid-column: 2; color: var(--ink-2); font-size: 12.5px; }
+.method .badge { font-size: 10.5px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent); margin-left: 6px; }
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; background: var(--sunken); border: 1px solid var(--line); border-radius: 10px; padding: 3px; gap: 3px; }
+.seg button { border: 0; background: transparent; padding: 6px 8px; border-radius: 7px; cursor: pointer; font-size: 12.5px; font-weight: 500; color: var(--ink-2); line-height: 1.2; }
+.seg button[aria-pressed="true"] { background: var(--panel); color: var(--ink); box-shadow: 0 1px 2px rgba(16, 24, 40, 0.12); }
+.seg button:disabled { opacity: 0.4; cursor: not-allowed; }
+details.adv { border-top: 1px solid var(--line); padding-top: 10px; }
+details.adv summary { cursor: pointer; font-size: 13px; font-weight: 500; list-style: none; display: flex; align-items: center; justify-content: space-between; }
+details.adv summary::-webkit-details-marker { display: none; }
+details.adv summary::after { content: "+"; color: var(--muted); font-weight: 500; font-size: 16px; }
+details.adv[open] summary::after { content: "–"; }
+.fields { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.slider { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 8px; align-items: center; }
+.slider label { font-size: 12.5px; }
+.slider output { font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.slider input[type="range"] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); margin: 0; }
+.slider .hint { grid-column: 1 / -1; font-size: 11px; color: var(--muted); }
+.inline { display: flex; gap: 8px; align-items: center; }
+.inline input[type="number"] { width: 100%; min-width: 0; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--panel); font-family: var(--font-mono); font-size: 12.5px; }
+.check { display: inline-flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--ink-2); cursor: pointer; }
+.check input { accent-color: var(--accent); }
+textarea { width: 100%; min-height: 64px; resize: vertical; padding: 8px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--panel); font-family: var(--font-mono); font-size: 12px; word-break: break-all; }
+.label { font-size: 12.5px; color: var(--ink-2); }
+#hop-field, #stopfold-field { display: flex; flex-direction: column; gap: 2px; }
+#stopfold-field.off { opacity: 0.45; }
+.hint-line { font-size: 11px; color: var(--muted); padding-left: 22px; }
+.slider.off { opacity: 0.45; }
+
+
+/* ---------- main ---------- */
+main { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.hero { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: stretch; }
+@media (max-width: 1320px) { .hero { grid-template-columns: minmax(0, 1fr); } }
+.stagecard { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+.stage { position: relative; background: var(--stage); aspect-ratio: 16 / 10; min-height: min(380px, 62vh); max-height: 76vh; width: 100%; overflow: hidden; touch-action: none; }
+@media (max-width: 640px) { .stage { aspect-ratio: 1 / 1.05; min-height: 0; max-height: 68vh; } }
+/* short landscape screens (phones turned sideways): size the view by height so controls stay on screen */
+@media (max-height: 540px) and (orientation: landscape) { .stage { aspect-ratio: auto; height: 68vh; min-height: 200px; max-height: none; } }
+.stage canvas { cursor: grab; }
+.stage canvas:active { cursor: grabbing; }
+.ov { position: absolute; z-index: 2; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.glass { background: var(--glass); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid var(--line); border-radius: 11px; padding: 4px; box-shadow: 0 2px 10px -4px rgba(16, 24, 40, 0.2); }
+.ov.tl { left: 12px; top: 12px; right: 200px; }
+.ov.tr { right: 12px; top: 12px; }
+.ov.bl { left: 12px; bottom: 12px; pointer-events: none; }
+.ov select { border: 0; background: transparent; padding: 5px 6px; font-size: 12.5px; font-weight: 500; border-radius: 7px; cursor: pointer; max-width: 100%; }
+.ov .seg { background: transparent; border: 0; padding: 0; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; border: 0; background: transparent; font-size: 12.5px; font-weight: 500; cursor: pointer; color: var(--ink-2); }
+.chip[aria-pressed="true"] { color: var(--ink); }
+.chip[aria-pressed="false"] { opacity: 0.5; }
+.chip:disabled { opacity: 0.3; cursor: not-allowed; }
+.sw { width: 12px; height: 4px; border-radius: 2px; display: inline-block; }
+.legendbar { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--ink-2); padding: 6px 10px; }
+.legendbar .grad { width: 120px; height: 8px; border-radius: 4px; }
+.legendbar .k { display: inline-flex; align-items: center; gap: 5px; }
+.legendbar .blk { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.sidelabels { position: absolute; z-index: 1; top: 104px; left: 0; right: 0; display: grid; grid-template-columns: 1fr 1fr; pointer-events: none; }
+.sidelabels span { justify-self: center; font-size: 12px; font-weight: 500; color: var(--ink-2); background: var(--glass); border: 1px solid var(--line); padding: 3px 10px; border-radius: 999px; }
+.hoverlabel { position: absolute; z-index: 3; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 6px 9px; font-size: 12px; box-shadow: var(--shadow); white-space: nowrap; transform: translate(12px, -50%); }
+.hoverlabel b { font-weight: 700; }
+.zoomhint { position: absolute; right: 12px; bottom: 12px; z-index: 2; font-size: 11.5px; color: var(--muted); pointer-events: none; text-align: right; max-width: 44%; line-height: 1.35; }
+.ov.bl { max-width: 52%; }
+@media (max-width: 1080px) { .zoomhint { display: none; } }
+@media (max-width: 640px) {
+  /* phone: one compact row of view controls on top, model/PDB chips bottom right, colour legend hidden */
+  .ov.tl { left: 8px; top: 8px; right: 8px; flex-wrap: nowrap; gap: 4px; }
+  .ov.tl > .glass:not(.seg) { flex: 1 1 0; min-width: 0; padding: 2px; }
+  .ov select { width: 100%; font-size: 12px; padding: 4px; text-overflow: ellipsis; }
+  #layout-seg { display: none; }
+  .ov.tr { top: auto; bottom: 8px; right: 8px; }
+  .ov.tr .chip { padding: 4px 7px; font-size: 12px; }
+  .ov.tr .iconbtn { width: 28px; height: 28px; }
+  .ov.bl { display: none; }
+  .sidelabels { top: 52px; }
+  .prot .pname, .prot .pmeta { white-space: normal; }
+}
+.webgl-fail { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--ink-2); }
+
+.timeline { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 14px; border-top: 1px solid var(--line); }
+.timeline input[type="range"] { width: 100%; accent-color: var(--accent); }
+.tl-readout { display: flex; gap: 16px; font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tl-readout b { color: var(--ink); font-weight: 500; }
+.tl-readout { align-items: center; }
+.runlen { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 8px 14px 12px; border-top: 1px solid var(--grid); font-size: 12.5px; color: var(--ink-2); }
+.runlen .btn { justify-self: end; }
+.runlen input { width: 100%; accent-color: var(--accent); }
+.runlen output { font-family: var(--font-mono); font-size: 12px; color: var(--ink); min-width: 44px; text-align: right; }
+@media (max-width: 520px) { .runlen { grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; } .runlen label { grid-column: 1 / -1; } .runlen .btn { grid-column: 1 / -1; justify-self: start; } }
+.btn.small { padding: 4px 10px; font-size: 12px; font-family: var(--font-ui); }
+@media (max-width: 640px) { .timeline { grid-template-columns: auto minmax(0, 1fr); } .tl-readout { grid-column: 1 / -1; flex-wrap: wrap; gap: 4px 14px; } }
+.progress { height: 3px; background: var(--grid); }
+.progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.2s; }
+
+/* scorecard */
+.score { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.score-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.which { font-size: 12px; color: var(--ink-2); }
+.bigrow { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.big { display: flex; flex-direction: column; gap: 2px; }
+.big b { font-size: 56px; font-weight: 500; line-height: 0.95; letter-spacing: -0.03em; }
+.big b small { font-size: 0.38em; font-weight: 500; color: var(--ink-2); margin-left: 3px; letter-spacing: 0; }
+.big span { font-size: 12.5px; color: var(--ink-2); }
+.verdict { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px 5px 7px; border-radius: 999px; font-size: 12.5px; font-weight: 500; border: 1px solid var(--line); background: var(--panel-2); }
+.verdict svg { width: 16px; height: 16px; flex: none; }
+[data-tone="good"] > svg { color: var(--good); } [data-tone="warn"] > svg { color: var(--warn); } [data-tone="bad"] > svg { color: var(--bad); } [data-tone="none"] > svg { color: var(--muted); }
+.tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.tile { background: var(--panel-2); border: 1px solid var(--line); border-radius: 11px; padding: 10px 11px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.tile span { font-size: 11.5px; color: var(--ink-2); }
+.tile b { font-size: 20px; font-weight: 500; letter-spacing: -0.01em; }
+.meter { height: 5px; border-radius: 3px; background: var(--grid); position: relative; }
+.meter i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: var(--model); }
+.meter u { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink-2); text-decoration: none; border-radius: 1px; }
+.metrics { margin: 0; display: flex; flex-direction: column; }
+.metric { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1px 12px; padding: 8px 0; border-top: 1px solid var(--grid); }
+.metric dt { font-size: 13px; }
+.metric dd { margin: 0; font-family: var(--font-mono); font-size: 12.5px; font-weight: 500; font-variant-numeric: tabular-nums; text-align: right; }
+.metric .why { grid-column: 1 / -1; font-size: 11.5px; color: var(--muted); }
+.fine { margin: 0; font-size: 12px; color: var(--muted); }
+
+/* tabs */
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; padding: 4px; background: var(--sunken); border: 1px solid var(--line); border-radius: 12px; align-self: flex-start; max-width: 100%; }
+.tabs button { border: 0; background: transparent; padding: 7px 12px; border-radius: 9px; font-size: 13px; font-weight: 500; color: var(--ink-2); cursor: pointer; white-space: nowrap; }
+.tabs button[aria-selected="true"] { background: var(--panel); color: var(--ink); box-shadow: 0 1px 2px rgba(16, 24, 40, 0.12); }
+.panel { padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+.panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; }
+.panel-head h3 { font-size: 15px; }
+.sub { margin: 0; font-size: 12.5px; color: var(--muted); max-width: 80ch; }
+.legend { display: flex; gap: 6px 14px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); align-items: center; }
+.legend .k { display: inline-flex; gap: 6px; align-items: center; }
+.legend .blk { width: 12px; height: 8px; border-radius: 2px; display: inline-block; }
+.legend .line { width: 16px; height: 2px; border-radius: 1px; display: inline-block; }
+.legend .ramp { width: 90px; height: 8px; border-radius: 2px; display: inline-block; background: linear-gradient(90deg, var(--heat-hi), var(--heat-lo)); border: 1px solid var(--line); }
+.legend .ramp.time { background: linear-gradient(90deg, var(--ramp-a), var(--ramp-b)); }
+.scroll-x { overflow-x: auto; }
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+@media (max-width: 900px) { .two { grid-template-columns: minmax(0, 1fr); } }
+canvas.chart { display: block; max-width: 100%; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th { text-align: left; font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 8px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+td.num, th.num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+tr.sel td { background: var(--accent-soft); }
+.tag { display: inline-flex; align-items: center; gap: 6px; }
+.tag svg { width: 14px; height: 14px; }
+.empty td { color: var(--muted); white-space: normal; }
+.prose { font-size: 13.5px; color: var(--ink-2); display: flex; flex-direction: column; gap: 10px; }
+.prose p { margin: 0; max-width: 78ch; }
+.prose b { color: var(--ink); }
+.prose a { color: var(--accent); }
+.prose h4 { margin: 6px 0 0; font-size: 13.5px; color: var(--ink); font-weight: 500; }
+
+/* MSA + AI panel */
+.pipe { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 960px) { .pipe { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .pipe { grid-template-columns: minmax(0, 1fr); } }
+.step { position: relative; overflow: hidden; background: var(--panel-2); border: 1px solid var(--line); border-radius: 11px; padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.step .k { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
+.step .k i { width: 7px; height: 7px; border-radius: 50%; background: var(--line-strong); flex: none; }
+.step[data-s="run"] .k i { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.step[data-s="done"] .k i { background: var(--good); }
+.step b { font-size: 19px; font-weight: 500; letter-spacing: -0.01em; }
+.step b small { font-size: 12px; font-weight: 500; color: var(--ink-2); letter-spacing: 0; }
+.step .d { font-size: 12px; color: var(--ink-2); }
+.step .bar { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--accent); transition: width 0.2s; }
+.evo-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.evo-col h4 { margin: 0; font-size: 13.5px; font-weight: 500; }
+.evo-col .seg button { padding: 4px 9px; }
+td.wrap { white-space: normal; color: var(--ink-2); font-size: 12.5px; min-width: 220px; }
+#msa-paste a { color: var(--accent); }
+@media (prefers-reduced-motion: reduce) { .step[data-s="run"] .k i { animation: none; } }
+
+.tooltip { position: fixed; z-index: 50; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 12px; box-shadow: var(--shadow); max-width: 280px; }
+.tooltip b { font-weight: 700; }
+.tooltip .tl { display: grid; grid-template-columns: auto auto; gap: 1px 14px; margin-top: 4px; }
+.tooltip .tl span:nth-child(odd) { color: var(--ink-2); }
+.tooltip .tl span:nth-child(even) { font-family: var(--font-mono); text-align: right; }
+</style>
+
+<header class="appbar">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--btn)"/><path d="M7 21c3-9 6-9 8-4s5 5 7-4 4-2 3 3" fill="none" stroke="var(--btn-ink)" stroke-width="2.4" stroke-linecap="round"/><circle cx="7" cy="21" r="2" fill="#3987e5"/><circle cx="25" cy="16" r="2" fill="#eb6834"/></svg>
+    <b><i>Cα</i> Folding Lab</b>
+  </div>
+  <div class="crumb" id="crumb"></div>
+  <div class="spacer"></div>
+  <div class="status" id="status" data-state="idle" role="status"><span class="dot"></span><span id="status-text">Ready</span></div>
+  <button class="btn primary" id="run" type="button">Fold</button>
+</header>
+
+<div class="layout">
+  <aside class="sidebar" aria-label="Settings">
+    <section class="card side">
+      <h2>Protein</h2>
+      <div class="plist" id="plist" role="radiogroup" aria-label="Protein"></div>
+      <div class="row">
+        <label class="btn file" for="pdb-file" title="PDB or mmCIF (.pdb, .cif, also .gz)">Upload structure<input type="file" id="pdb-file" accept=".pdb,.ent,.cif,.mmcif,.gz,.txt"></label>
+        <button class="btn" id="seq-toggle" type="button" aria-expanded="false">Type a sequence</button>
+      </div>
+      <div id="custom" hidden>
+        <label class="label" for="seq-input">One-letter sequence, 8–120 residues</label>
+        <textarea id="seq-input" spellcheck="false">KKWTWNPATGKWTWQE</textarea>
+        <div class="row"><button class="btn" id="seq-use" type="button">Fold this sequence</button></div>
+        <p class="note">With no experimental structure, the comparison views stay empty.</p>
+      </div>
+      <p class="note" id="load-msg" role="status"></p>
+    </section>
+
+    <section class="card side">
+      <h2>Method</h2>
+      <div class="methods" id="methods" role="radiogroup" aria-label="Method"></div>
+      <div id="ss-field">
+        <span class="label">Secondary structure</span>
+        <div class="seg" id="ss-seg" role="group" aria-label="Secondary structure source" style="margin-top:6px">
+          <button type="button" data-v="pred" aria-pressed="true">Predicted</button>
+          <button type="button" data-v="real" aria-pressed="false">From PDB record</button>
+        </div>
+      </div>
+      <div id="steps-field"></div>
+      <div id="hop-field">
+        <label class="check"><input type="checkbox" id="hop" checked> Monte Carlo restarts</label>
+        <span class="hint-line">When a replica stops improving for 50k steps, try a new move and keep it only if it helps.</span>
+        <div class="slider" style="margin-top:8px">
+          <label for="hop-sev">Restart severity</label><output id="hop-sev-out" for="hop-sev">Default</output>
+          <input type="range" id="hop-sev" min="1" max="5" step="1" value="3" aria-describedby="hop-sev-hint">
+          <span class="hint" id="hop-sev-hint"></span>
+        </div>
+      </div>
+      <div id="stopfold-field">
+        <label class="check"><input type="checkbox" id="stopfold"> Stop at same fold</label>
+        <span class="hint-line">Ends the run as soon as any replica matches the PDB fold (TM-score ≥ 0.5 or close RMSD). Uses the answer, so it isn't blind.</span>
+      </div>
+      <details class="adv" id="adv">
+        <summary>Advanced settings</summary>
+        <div class="fields">
+          <div id="sliders" class="fields" style="margin:0"></div>
+          <div id="schedule" class="fields" style="margin:0"></div>
+          <div class="slider"><label for="replicas">Independent replicas</label><output id="replicas-out">12</output>
+            <input type="range" id="replicas" min="1" max="16" step="1" value="12"><span class="hint">Each runs in its own thread; the consensus model comes from clustering all of them.</span></div>
+          <div><label class="label" for="seed">Random seed</label>
+            <div class="inline" style="margin-top:6px"><input id="seed" type="number" min="1" max="999999" value="11"><button class="btn" id="reroll" type="button">New</button></div></div>
+          <label class="check"><input type="checkbox" id="watch"> Slow motion (about 3,000 steps/s per replica)</label>
+        </div>
+      </details>
+    </section>
+
+    <section class="card side" hidden>
+      <h2>Best predictions</h2>
+      <p class="note">Saved MSA + AI runs on proteins the network never saw. Load one to explore a good fold without waiting.</p>
+      <div class="plist" id="examples"></div>
+    </section>
+
+    <section class="card side">
+      <h2>Benchmark</h2>
+      <p class="note">Fold all six PDB proteins in a row with the current method and settings. Results land in the run log.</p>
+      <button class="btn" id="run-all" type="button">Run all six</button>
+    </section>
+  </aside>
+
+  <main>
+    <div class="hero">
+      <section class="card stagecard" aria-label="3D structure">
+        <div class="stage" id="stage">
+          <div class="ov tl">
+            <div class="glass"><select id="rep" aria-label="Representation">
+              <option value="cartoon">Cartoon (atoms on zoom)</option>
+              <option value="sticks">Cartoon + all atoms</option>
+              <option value="ball">Ball and stick</option>
+              <option value="spacefill">Spacefill</option>
+              <option value="trace">Cα trace</option>
+            </select></div>
+            <div class="glass"><select id="colorby" aria-label="Color by">
+              <option value="rainbow">Color: N→C rainbow</option>
+              <option value="ss">Color: secondary structure</option>
+              <option value="dev">Color: distance from PDB</option>
+              <option value="hydro">Color: hydrophobicity</option>
+            </select></div>
+            <div class="glass seg" id="layout-seg" role="group" aria-label="Layout">
+              <button type="button" data-v="overlay" aria-pressed="true">Superposed</button>
+              <button type="button" data-v="side" aria-pressed="false">Side by side</button>
+            </div>
+          </div>
+          <div class="ov tr glass">
+            <button class="chip" id="show-model" type="button" aria-pressed="true"><span class="sw" style="background:var(--model)"></span>Model</button>
+            <button class="chip" id="show-pdb" type="button" aria-pressed="true"><span class="sw" style="background:var(--muted)"></span>PDB</button>
+            <button class="btn ghost iconbtn" id="spin" type="button" aria-pressed="false" title="Spin" aria-label="Spin"><svg viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v2.5h-2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            <button class="btn ghost iconbtn" id="recenter" type="button" title="Reset view" aria-label="Reset view"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2" fill="currentColor"/><path d="M8 1.5v2.5M8 12v2.5M1.5 8H4M12 8h2.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+          </div>
+          <div class="sidelabels" id="sidelabels" hidden><span>Model</span><span id="side-pdb">PDB</span></div>
+          <div class="ov bl glass" id="legend3d"></div>
+          <div class="zoomhint" id="zoomhint">Drag to rotate · scroll to zoom in on atoms · right-drag to pan · double-click a residue to focus</div>
+          <div class="hoverlabel" id="hover" hidden></div>
+        </div>
+        <div class="progress" aria-hidden="true"><i id="progress"></i></div>
+        <div class="timeline">
+          <button class="btn iconbtn" id="replay" type="button" title="Replay trajectory" aria-label="Replay trajectory"><svg viewBox="0 0 16 16" id="replay-icon"><path d="M5 3.5v9l7-4.5z" fill="currentColor"/></svg></button>
+          <input type="range" id="scrub" min="0" max="0" value="0" aria-label="Trajectory frame">
+          <div class="tl-readout"><span>step <b id="ro-step">0</b></span><span>kT <b id="ro-t">–</b></span><span>E <b id="ro-e">–</b></span><span id="ro-speed"></span></div>
+        </div>
+        <div class="runlen">
+          <label for="tl-steps">Steps per replica</label>
+          <input type="range" id="tl-steps" min="0" max="27" step="1" value="5">
+          <output id="tl-steps-out" for="tl-steps">300k</output>
+          <button class="btn small primary" id="tl-start" type="button">Start</button>
+        </div>
+      </section>
+      <section class="card score" id="score" aria-live="polite"></section>
+    </div>
+
+    <div class="tabs" role="tablist" id="tabs">
+      <button role="tab" data-tab="traj" aria-selected="true">Trajectory</button>
+      <button role="tab" data-tab="evo" aria-selected="false">MSA + AI</button>
+      <button role="tab" data-tab="res" aria-selected="false">Residues</button>
+      <button role="tab" data-tab="cmap" aria-selected="false">Contact map</button>
+      <button role="tab" data-tab="land" aria-selected="false">Energy landscape</button>
+      <button role="tab" data-tab="reps" aria-selected="false">Replicas</button>
+      <button role="tab" data-tab="log" aria-selected="false">Run log</button>
+      <button role="tab" data-tab="method" aria-selected="false">Method</button>
+    </div>
+
+    <section class="card panel" data-panel="traj">
+      <div class="panel-head"><h3>Trajectory</h3>
+        <div class="legend"><span class="k"><span class="line" style="background:var(--model)"></span><span id="traj-focus">Replica 1 (shown)</span></span><span class="k"><span class="line" style="background:var(--coil)"></span>Other replicas</span></div></div>
+      <p class="sub">Sampled every few thousand steps. Click a line to show that replica; the vertical rule marks the frame on screen.</p>
+      <canvas class="chart" id="traj"></canvas>
+    </section>
+    <section class="card panel" data-panel="evo" hidden>
+      <div class="panel-head"><h3>Evolution and AI</h3>
+        <div class="row">
+          <label class="btn file" for="msa-file">Upload MSA<input type="file" id="msa-file" accept=".a3m,.fasta,.fa,.faa,.fas,.aln,.txt"></label>
+          <button class="btn" id="msa-paste-toggle" type="button" aria-expanded="false">Paste</button>
+          <button class="btn ghost" id="msa-reset" type="button" hidden>Remove uploaded MSA</button>
+        </div></div>
+      <p class="sub">Related proteins keep the same fold, and residues that touch tend to mutate together. A multiple sequence alignment (MSA) of homologs carries that signal; mean-field direct coupling analysis (DCA) pulls it out, and a residual neural network turns it into a distance histogram for every residue pair plus a secondary-structure call. Those predictions are what “MSA + AI” folds with.</p>
+      <div id="msa-paste" hidden class="fields" style="margin:0">
+        <label class="label" for="msa-text">A3M, aligned FASTA, or plain homolog sequences in FASTA (they are aligned to the query with Smith–Waterman). Get one from <a href="https://search.mmseqs.com" target="_blank" rel="noopener">MMseqs2</a>, <a href="https://www.ebi.ac.uk/Tools/hmmer/search/jackhmmer" target="_blank" rel="noopener">jackhmmer</a> or <a href="https://blast.ncbi.nlm.nih.gov/Blast.cgi?PAGE=Proteins" target="_blank" rel="noopener">BLAST</a>.</label>
+        <textarea id="msa-text" spellcheck="false" placeholder=">query&#10;NLYIQWLKDGGPSSGRPPPS&#10;>homolog_1&#10;…"></textarea>
+        <div class="row"><button class="btn" id="msa-use" type="button">Use this alignment</button></div>
+      </div>
+      <p class="note" id="msa-msg" role="status"></p>
+      <div class="pipe" id="evo-pipe"></div>
+      <div class="two">
+        <div class="evo-col"><div class="panel-head"><h4>Alignment</h4>
+          <div class="legend"><span class="k"><span class="blk" style="background:rgb(64,120,220)"></span>hydrophobic</span><span class="k"><span class="blk" style="background:rgb(224,76,70)"></span>+</span><span class="k"><span class="blk" style="background:rgb(196,84,205)"></span>−</span><span class="k"><span class="blk" style="background:rgb(46,170,98)"></span>polar</span><span class="k"><span class="blk" style="background:rgb(236,150,48)"></span>Gly</span><span class="k"><span class="blk" style="background:rgb(204,182,40)"></span>Pro</span></div></div>
+          <canvas class="chart" id="msa-canvas"></canvas><p class="fine" id="msa-cap"></p></div>
+        <div class="evo-col"><div class="panel-head"><h4>Predicted contacts</h4>
+          <div class="seg" id="evo-map-seg" role="group" aria-label="Contact source"><button type="button" data-v="ai" aria-pressed="true">Neural network</button><button type="button" data-v="dca" aria-pressed="false">Raw DCA</button></div></div>
+          <canvas class="chart" id="evo-map"></canvas><p class="fine" id="evo-cap"></p></div>
+      </div>
+      <div class="table-wrap" id="evo-table"></div>
+    </section>
+    <section class="card panel" data-panel="res" hidden>
+      <div class="panel-head"><h3>Residue by residue</h3>
+        <div class="legend"><span class="k"><span class="blk" style="background:var(--helix)"></span>Helix</span><span class="k"><span class="blk" style="background:var(--strand)"></span>Strand</span><span class="k"><span class="blk" style="background:var(--coil);height:3px"></span>Coil</span><span class="k"><span class="blk" style="background:var(--model)"></span>Distance from PDB</span></div></div>
+      <p class="sub">Secondary structure of the PDB record, the method's prediction and the model's own geometry, with each residue's distance from the PDB position after superposition.</p>
+      <div class="scroll-x"><canvas class="chart" id="tracks"></canvas></div>
+    </section>
+    <section class="card panel" data-panel="cmap" hidden>
+      <div class="panel-head"><h3>Contact map</h3><div class="legend"><span class="mono">4 Å</span><span class="ramp"></span><span class="mono">12 Å</span></div></div>
+      <p class="sub">Cα–Cα distance for every residue pair. Lower-left is the PDB structure, upper-right the model; matching patterns mean matching contacts. Helices show as bands along the diagonal, paired strands as lines across it.</p>
+      <canvas class="chart" id="cmap"></canvas>
+    </section>
+    <section class="card panel" data-panel="land" hidden>
+      <div class="panel-head"><h3>Energy landscape</h3>
+        <div class="legend"><span>early</span><span class="ramp time"></span><span>late</span><span class="k"><span class="blk" style="background:var(--native);transform:rotate(45deg);width:8px;height:8px"></span>PDB structure</span><span class="k"><span class="blk" style="border:2px solid var(--ink);border-radius:50%;width:10px;height:10px"></span>Consensus model</span></div></div>
+      <p class="sub">Every sampled frame of every replica: energy against distance from the PDB structure. A good force field makes a funnel that slopes down toward 0 Å.</p>
+      <canvas class="chart" id="funnel"></canvas>
+    </section>
+    <section class="card panel" data-panel="reps" hidden>
+      <div class="panel-head"><h3>Replicas</h3></div>
+      <p class="sub">Independent runs from different random coils. The consensus model is the medoid of the largest cluster of late, low-temperature frames, the way I-TASSER's SPICKER and Rosetta pick models.</p>
+      <div class="table-wrap"><table id="reptable"></table></div>
+    </section>
+    <section class="card panel" data-panel="log" hidden>
+      <div class="panel-head"><h3>Run log</h3><button class="btn" id="clear-log" type="button">Clear</button></div>
+      <div class="table-wrap"><table id="history"></table></div>
+    </section>
+    <section class="card panel prose" data-panel="method" hidden id="method-panel"></section>
+  </main>
+</div>
+<div class="tooltip" id="tip" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="natives.js" charset="utf-8"></script>
+<script src="kb.js" charset="utf-8"></script>
+<script src="engine.js" charset="utf-8"></script>
+<script src="evo.js" charset="utf-8"></script>
+<script src="evo-msa.js" charset="utf-8"></script>
+<script src="evo-model.js?v7" charset="utf-8"></script>
+<script src="evo-examples.js" charset="utf-8"></script>
+<script src="viewer3d.js" charset="utf-8"></script>
+<script src="benchmark.js" charset="utf-8"></script>
+<script src="app.js?v7d" charset="utf-8"></script>
