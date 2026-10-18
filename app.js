@@ -1056,7 +1056,7 @@
     const body = rows.length ? rows.map(r => `<tr><td><b>${esc(r.id)}</b> ${esc(r.name)}</td><td>${MN[r.method] || r.method}</td><td>${esc(r.ss)}</td><td class="num">${r.R || 1}</td>
       <td class="num">${fmtSteps(r.steps)}</td><td class="num">${r.secs != null ? r.secs + ' s' : '–'}</td><td class="num">${r.rmsd == null ? '–' : r.rmsd.toFixed(1)}</td><td class="num">${r.best == null ? '–' : r.best.toFixed(1)}</td><td class="num">${r.tm == null ? '–' : r.tm.toFixed(2)}</td>
       <td class="num">${r.gdt == null ? '–' : r.gdt.toFixed(2)}</td><td class="num">${r.q == null ? '–' : pct(r.q)}</td><td><span class="tag" data-tone="${r.tone}">${ICON[r.tone] || ''}${esc(r.verdict)}</span></td></tr>`).join('')
-      : '<tr class="empty"><td colspan="12">Finished runs appear here, newest first. Compare methods, settings and proteins; “Run all six” fills it in one go.</td></tr>';
+      : '<tr class="empty"><td colspan="12">Finished runs appear here, newest first. Compare methods, settings and proteins; “Run all ten” fills it in one go.</td></tr>';
     $('history').innerHTML = head + '<tbody>' + body + '</tbody>';
   }
 
@@ -1449,7 +1449,7 @@
       <h4>Scores</h4>
       <p>RMSD after optimal superposition; TM-score and GDT-TS maximised over superpositions; Q, the share of PDB contacts within 1.2× their native distance; secondary structure from Cα geometry against the PDB record; and an energy check that scores the PDB structure with the same force field.</p>
       <h4>Benchmark</h4>
-      <p>Consensus-model Cα RMSD to the PDB structure (Å, lower is better). Columns up to v6 were measured with 6 replicas, seed 11 and the default schedule; the v8 column is the mean of three seeds (11, 101, 202) with 12 replicas each and the current model selection. Reproduce any row with “Run all six”.</p>
+      <p>Consensus-model Cα RMSD to the PDB structure (Å, lower is better). Columns up to v6 were measured with 6 replicas, seed 11 and the default schedule; the v8 column is the mean of three seeds (11, 101, 202) with 12 replicas each and the current model selection. Reproduce any row with “Run all ten”.</p>
       ${benchTable()}
       <h4>Methods compared</h4>
       <p><b>Simple physics</b> is version 1 of this lab (Chou–Fasman propensities and a hydrophobic attraction). <b>Native contacts (Gō)</b> follows Clementi, Nymeyer &amp; Onuchic (2000); it is built from the answer and shows a folding route, not a prediction.</p>
@@ -1595,7 +1595,7 @@
     $('crumb').innerHTML = `<b>${esc(t.name)}</b> · ${esc(mname)}${state.method !== 'go' ? ` · ${state.ssSource === 'real' ? 'SS from PDB record' : 'blind'}` : ''} · ${run ? run.R : state.replicas} replicas`;
     const btn = $('run');
     btn.textContent = !run ? 'Fold' : run.status === 'running' ? 'Pause' : run.status === 'paused' ? 'Resume' : run.status === 'done' ? 'Fold again' : 'Fold';
-    $('run-all').textContent = state.queue.length ? `Stop after this run (${state.queue.length} left)` : 'Run all six';
+    $('run-all').textContent = state.queue.length ? `Stop after this run (${state.queue.length} left)` : `Run all ${BUILTIN.length === 10 ? 'ten' : BUILTIN.length}`;
     const st = $('status'), steps = run ? Math.min(...run.reps.map(r => r.step)) : 0, frac = run ? steps / run.steps : 0;
     if (evoWait) { st.dataset.state = 'running'; $('status-text').textContent = evoStatusText(t); }
     else if (!run || run.status === 'ready') { st.dataset.state = 'idle'; $('status-text').textContent = 'Ready'; }
