@@ -97,14 +97,18 @@ def tags_of(z):
     return [t for t in ('full', 'd64', 'd8', 'd1') if t + '_f1' in z]
 
 
-def example(z, rng, crop_p=0.35, maxl=256):
-    """One augmented training example: a random alignment depth, then a random window (always when longer than maxl)."""
+def example(z, rng, crop_p=0.35, maxl=256, bucket=0):
+    """One augmented training example: a random alignment depth, then a random window (always when longer than maxl).
+    bucket > 0 trims chains longer than 64 to a multiple of `bucket` (a random window losing at most bucket - 1 residues),
+    so a GPU that compiles one graph per shape (Apple MPS) sees a few dozen lengths instead of hundreds."""
     tg = tags_of(z)
     tag = rng.choices(tg, weights=[DEPTH_W[t] for t in tg])[0]
     f1, f2 = inputs(z, tag)
     b, m, ss = targets(z)
     L = f1.shape[-1]
     w = maxl if L > maxl else (rng.choice([c for c in CROPS if c < L]) if L > 14 and rng.random() < crop_p else None)
+    if not w and bucket and L > 64 and L % bucket:
+        w = L - L % bucket
     if w:
         s0 = rng.randint(0, L - w)
         f1, f2 = f1[..., s0:s0 + w], f2[..., s0:s0 + w, s0:s0 + w]
@@ -112,36 +116,55 @@ def example(z, rng, crop_p=0.35, maxl=256):
     return f1, f2, b, m, ss
 
 
-def loss_of(net, ex, dev):
+def resolve_precision(precision, dev):
+    """'auto' -> bf16 on a CUDA GPU that supports it, fp32 elsewhere. On CUDA also allows TF32 for whatever still runs
+    in fp32 (matmuls and convolutions outside autocast)."""
+    if dev.type == 'cuda':
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+    if precision == 'auto':
+        return 'bf16' if dev.type == 'cuda' and torch.cuda.is_bf16_supported() else 'fp32'
+    return precision
+
+
+def loss_of(net, ex, dev, precision='fp32'):
+    """Loss of one example. With precision 'bf16' the network runs under bf16 autocast; the weights, the gradients and
+    the losses stay float32 (autocast keeps cross-entropy and norms in float32)."""
     f1, f2, b, m, ss = ex
-    pss, g = net(f1.to(dev), f2.to(dev))
+    if precision == 'bf16':
+        with torch.autocast(device_type=dev.type, dtype=torch.bfloat16):
+            pss, g = net(f1.to(dev), f2.to(dev))
+        pss, g = pss.float(), g.float()
+    else:
+        pss, g = net(f1.to(dev), f2.to(dev))
     ld = Fn.cross_entropy(g, b.to(dev), reduction='none')[m.to(dev)].mean()
     ls = Fn.cross_entropy(pss, ss.to(dev), ignore_index=-1)
-    return ld + 0.5 * ls, ld.item(), ls.item()
+    vd, vs = torch.stack([ld.detach(), ls.detach()]).tolist()     # one device sync for both numbers
+    return ld + 0.5 * ls, vd, vs
 
 
-def unit_gradient(net, chains, dev, seed, clip=1.0, crop_p=0.35, maxl=256):
+def unit_gradient(net, chains, dev, seed, clip=1.0, crop_p=0.35, maxl=256, precision='fp32', bucket=0):
     """Average of per-chain gradients, each clipped to norm `clip` as in single-machine training.
     chains: list of loaded .npz dicts. Returns ({name: float32 array}, mean distance loss, mean SS loss)."""
     rng = random.Random(seed)
     params = [p for p in net.parameters()]
-    acc = [torch.zeros_like(p, device='cpu') for p in params]
+    # sum on the device and copy once at the end: per-tensor copies after every chain force a GPU sync each (slow on MPS)
+    acc = [torch.zeros_like(p) for p in params]
     lds, lss, used = [], [], 0
     net.train()
     for z in chains:
-        loss, ld, ls = loss_of(net, example(z, rng, crop_p, maxl), dev)
-        if not math.isfinite(loss.item()):
+        loss, ld, ls = loss_of(net, example(z, rng, crop_p, maxl, bucket), dev, precision)
+        if not (math.isfinite(ld) and math.isfinite(ls)):
             continue
         net.zero_grad(set_to_none=True)
         loss.backward()
         nn.utils.clip_grad_norm_(params, clip)
-        for a, p in zip(acc, params):
-            a += p.grad.detach().to('cpu')
+        torch._foreach_add_(acc, [p.grad for p in params])
         lds.append(ld); lss.append(ls); used += 1
     if not used:
         raise RuntimeError('no usable chain in this unit')
     names = [n for n, _ in net.named_parameters()]
-    return {n: (a / used).numpy() for n, a in zip(names, acc)}, float(np.mean(lds)), float(np.mean(lss))
+    return {n: (a / used).cpu().numpy() for n, a in zip(names, acc)}, float(np.mean(lds)), float(np.mean(lss))
 
 
 def evaluate(net, chains, dev):

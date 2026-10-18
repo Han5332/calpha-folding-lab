@@ -42,7 +42,7 @@ Useful options: `--epochs 4` (passes over the data), `--lr 2e-4` (peak learning 
 
 RTX 50-series GPUs need a PyTorch build for CUDA 12.8 or newer; older builds install but cannot use the GPU.
 
-1. Install Python 3.12 from python.org (tick "Add python.exe to PATH") and an up-to-date NVIDIA driver.
+1. Install Python 3.12 from python.org (3.9 or newer works) (tick "Add python.exe to PATH") and an up-to-date NVIDIA driver.
 2. In PowerShell:
 
    ```powershell
@@ -62,11 +62,45 @@ RTX 50-series GPUs need a PyTorch build for CUDA 12.8 or newer; older builds ins
    `--chains 32` asks for bigger units, so the GPU spends its time computing rather than waiting on Wi-Fi.
    Keep the laptop plugged in and set it not to sleep while it trains.
 
-The same command works on Linux or another Mac (`python3` instead of `py`, and the CUDA wheel only for NVIDIA GPUs).
-The Mac running the coordinator can contribute too: run `contribute.py` in a second terminal with
-`--server http://127.0.0.1:8800`.
+   On an NVIDIA GPU the contributor runs the network in **bf16** (bfloat16 autocast, with TF32 for the rest), which uses
+   the tensor cores of RTX 30/40/50-series cards. Weights, gradients and losses stay float32; on the same chains, bf16
+   gradients matched fp32 to a cosine similarity of 0.9999 (measured with the same bf16 arithmetic on a Mac; the CUDA
+   speed-up itself was not measured here). Pass `--precision fp32` to turn it off.
 
-## 3. Use the result in the lab
+### What the contributor does to keep the GPU busy
+
+- **Prefetch:** while one unit computes, a background thread fetches the next unit, its chains and any new weights, and
+  another sends the previous result. `--no-prefetch` goes back to doing them in turn. Because the next unit is fetched
+  during the current one, its weights are usually one update old, well inside the coordinator's 8-update limit.
+- **Half-size uploads:** gradients go up as float16 (1.2 MB instead of 2.3 MB per unit); the coordinator converts them to
+  float32 before checking and applying them. `--send fp32` sends full precision. Older contributors that send float32
+  keep working with the current coordinator, and the current contributor works with an older coordinator.
+
+The same command works on Linux or another Mac (`python3` instead of `py`, and the CUDA wheel only for NVIDIA GPUs).
+
+## 3. Train on the Mac itself (Apple GPU)
+
+The Mac that runs the coordinator can contribute its GPU at the same time. In a second terminal:
+
+```bash
+cd distributed
+python3 contribute.py --server http://127.0.0.1:8800 --token TOKEN --name mac-gpu --chains 16
+```
+
+- The coordinator's held-out checks run on the CPU (`--eval-device cpu`, the default), so they don't take the GPU away
+  from this contributor.
+- It runs in fp32 on Apple GPUs: on an M-series Mac, fp16 autocast was no faster and bf16 was half as fast.
+- Gradients are summed on the GPU and copied back once per unit, instead of after every chain. Once the lengths are
+  compiled, that raised throughput by about 27% (217 → 276 chains per minute on the Apple GPU, measured while other
+  jobs shared the machine), with bit-for-bit identical gradients.
+- Apple GPUs compile a kernel graph for every new chain length and then reuse it. To keep the number of lengths small,
+  the contributor trims chains longer than 64 residues to a multiple of 8 (a random window, losing at most 7 residues;
+  `--bucket 0` turns it off, and it is off by default on NVIDIA GPUs and CPUs). From a fresh start this doubled
+  end-to-end throughput: 134 and 167 chains per minute against 73 and 68 without it, over 20 units of 16 chains each.
+- A CPU contributor on the same Mac adds little (about 45 chains per minute) and competes with the GPU contributor and
+  the coordinator for the processor, so leave it off while the GPU trains.
+
+## 4. Use the result in the lab
 
 ```bash
 python3 export_app.py run1/best.npz ../evo-model.js --note "volunteer run 1"

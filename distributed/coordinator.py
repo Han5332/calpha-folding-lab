@@ -336,7 +336,8 @@ def make_handler(C):
                     return
                 q = parse_qs(u.query)
                 try:
-                    grads = E.from_npz(body)
+                    # contributors send float16 (current) or float32 (older versions): check and apply in float32
+                    grads = {k: v.astype(np.float32) for k, v in E.from_npz(body).items()}
                     r = C.submit(wid, q['unit'][0], int(q['version'][0]), grads, float(q['ld'][0]), float(q['ls'][0]),
                                  float(q['secs'][0]))
                 except (KeyError, ValueError, OSError) as e:
