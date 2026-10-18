@@ -76,6 +76,7 @@ of minutes depending on the machine.
 | `viewer3d.js` | three.js cartoon / atom viewer |
 | `benchmark.js` | Measured RMSD / TM-score per version |
 | `monitor/` | Local dashboard used while training the network |
+| `distributed/` | Volunteer training: other computers contribute GPU or CPU time ([guide](distributed/README.md)) |
 
 ## Data
 

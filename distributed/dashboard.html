@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Volunteer Training</title>
+<style>
+:root {
+  --bg: #f3f4f6; --panel: #ffffff; --sunken: #eef0f3; --ink: #0d1117; --ink-2: #4b5563; --muted: #858d9b;
+  --line: #e4e7eb; --grid: #eceef1; --accent: #2b5fd9; --accent-soft: #e8eefc; --good: #1f9d55; --warn: #c27c0e; --bad: #d14343;
+  --val: #eb6834; --font: Arial, Helvetica, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1016; --panel: #151a22; --sunken: #1b212b; --ink: #e8ebf0; --ink-2: #aab2bf; --muted: #7d8694;
+    --line: #262d38; --grid: #212833; --accent: #6d9bff; --accent-soft: #1c2840; --good: #3cc47c; --warn: #e3a64a; --bad: #f07171; --val: #ff8a57;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1016; --panel: #151a22; --sunken: #1b212b; --ink: #e8ebf0; --ink-2: #aab2bf; --muted: #7d8694;
+  --line: #262d38; --grid: #212833; --accent: #6d9bff; --accent-soft: #1c2840; --good: #3cc47c; --warn: #e3a64a; --bad: #f07171; --val: #ff8a57;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 var(--font); }
+main { max-width: 1120px; margin: 0 auto; padding: 24px 16px 48px; }
+header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+h1 { font-size: 20px; margin: 0; font-weight: 700; }
+h1 i { font-style: normal; color: var(--accent); }
+h2 { font-size: 11.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; font-weight: 700; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 99px; background: var(--panel); border: 1px solid var(--line); font-size: 12.5px; color: var(--ink-2); }
+.chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.chip[data-s="live"] .dot { background: var(--good); }
+.chip[data-s="off"] .dot { background: var(--bad); }
+.spacer { flex: 1; }
+.grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
+@media (max-width: 860px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; min-width: 0; }
+.big { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.sub { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+.bar { height: 6px; border-radius: 3px; background: var(--sunken); margin-top: 10px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .4s; }
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin-bottom: 12px; }
+@media (max-width: 860px) { .two { grid-template-columns: minmax(0, 1fr); } }
+canvas { width: 100%; height: 220px; display: block; }
+.legend { display: flex; gap: 14px; font-size: 12px; color: var(--ink-2); margin-top: 6px; flex-wrap: wrap; }
+.legend i { display: inline-block; width: 10px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { color: var(--muted); font-weight: 400; font-size: 12px; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.wrap { overflow-x: auto; }
+.state { display: inline-flex; align-items: center; gap: 6px; }
+.state .dot { width: 7px; height: 7px; border-radius: 50%; }
+.empty { color: var(--muted); padding: 18px 0; text-align: center; }
+pre { margin: 8px 0 0; padding: 10px 12px; background: var(--sunken); border-radius: 8px; overflow-x: auto; font: 12.5px/1.5 var(--font); color: var(--ink); white-space: pre-wrap; word-break: break-all; }
+.note { color: var(--ink-2); font-size: 13px; margin: 0; }
+.btn { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 8px; padding: 5px 10px; font: 12.5px var(--font); cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1><i>Cα</i> Volunteer training</h1>
+    <span class="chip" id="conn" data-s=""><span class="dot"></span><span id="conn-t">Connecting…</span></span>
+    <div class="spacer"></div>
+    <span class="sub" id="uptime"></span>
+  </header>
+
+  <div class="grid">
+    <div class="card"><h2>Updates</h2><div class="big" id="k-upd">–</div><div class="sub" id="k-upd-s"></div><div class="bar"><i id="k-upd-b"></i></div></div>
+    <div class="card"><h2>Chains trained</h2><div class="big" id="k-ch">–</div><div class="sub" id="k-ch-s"></div></div>
+    <div class="card"><h2>Throughput</h2><div class="big" id="k-rate">–</div><div class="sub">chains per minute, all contributors</div></div>
+    <div class="card"><h2>Contributors</h2><div class="big" id="k-w">–</div><div class="sub" id="k-w-s"></div></div>
+  </div>
+
+  <div class="two">
+    <div class="card"><h2>Training loss</h2><canvas id="c-loss"></canvas>
+      <div class="legend"><span><i style="background:var(--accent)"></i>distance loss, moving average over 25 updates</span></div></div>
+    <div class="card"><h2>Held-out chains</h2><canvas id="c-val"></canvas>
+      <div class="legend"><span><i style="background:var(--val)"></i>distance loss (left)</span><span><i style="background:var(--good)"></i>long-range contact precision (right)</span></div></div>
+  </div>
+
+  <div class="card" style="margin-bottom:12px"><h2>Who is contributing</h2><div class="wrap"><table id="t-w"></table></div></div>
+
+  <div class="card"><h2>Add a computer</h2>
+    <p class="note">On the other computer: install Python 3 with <b>numpy</b> and <b>torch</b>, copy <b>contribute.py</b> and <b>evonet.py</b> from the repo's <b>distributed</b> folder, then run:</p>
+    <pre id="cmd"></pre>
+    <p class="note" style="margin-top:8px" id="cmd-note"></p>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const fmt = n => n == null ? '–' : n.toLocaleString('en-US');
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function dur(s) { s = Math.round(s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return h ? `${h} h ${m} min` : m ? `${m} min` : `${s} s`; }
+function setup(c) {
+  const r = c.getBoundingClientRect(), d = window.devicePixelRatio || 1;
+  c.width = Math.max(1, Math.round(r.width * d)); c.height = Math.max(1, Math.round(r.height * d));
+  const x = c.getContext('2d'); x.setTransform(d, 0, 0, d, 0, 0); return [x, r.width, r.height];
+}
+function axes(x, w, h, lo, hi, side, digits) {
+  x.strokeStyle = css('--grid'); x.fillStyle = css('--muted'); x.font = '11px ' + css('--font'); x.lineWidth = 1;
+  for (let k = 0; k <= 4; k++) {
+    const y = 10 + (h - 34) * k / 4, v = hi - (hi - lo) * k / 4;
+    x.beginPath(); x.moveTo(44, y); x.lineTo(w - 44, y); x.stroke();
+    x.textAlign = side === 'right' ? 'left' : 'right'; x.fillText(v.toFixed(digits), side === 'right' ? w - 40 : 40, y + 4);
+  }
+}
+function line(x, w, h, pts, x0, x1, lo, hi, color) {
+  if (!pts.length) return;
+  x.strokeStyle = color; x.lineWidth = 2; x.beginPath();
+  pts.forEach(([a, b], i) => { const px = 44 + (w - 88) * (a - x0) / Math.max(1e-9, x1 - x0), py = 10 + (h - 34) * (hi - b) / Math.max(1e-9, hi - lo); i ? x.lineTo(px, py) : x.moveTo(px, py); });
+  x.stroke();
+}
+function range(v) { let lo = Math.min(...v), hi = Math.max(...v); if (hi - lo < 1e-6) { lo -= 0.05; hi += 0.05; } const p = (hi - lo) * 0.1; return [lo - p, hi + p]; }
+function drawLoss(S) {
+  const [x, w, h] = setup($('c-loss'));
+  const L = S.loss;
+  if (L.length < 2) { x.fillStyle = css('--muted'); x.font = '13px ' + css('--font'); x.textAlign = 'center'; x.fillText('Waiting for the first updates', w / 2, h / 2); return; }
+  const pts = []; let acc = [];
+  L.forEach(r => { acc.push(r[1]); if (acc.length > 25) acc.shift(); pts.push([r[0], acc.reduce((a, b) => a + b, 0) / acc.length]); });
+  const [lo, hi] = range(pts.map(p => p[1]));
+  axes(x, w, h, lo, hi, 'left', 2);
+  x.textAlign = 'center'; x.fillText('update', w / 2, h - 6);
+  line(x, w, h, pts, L[0][0], L[L.length - 1][0], lo, hi, css('--accent'));
+}
+function drawVal(S) {
+  const [x, w, h] = setup($('c-val'));
+  const V = S.val;
+  if (!V.length) { x.fillStyle = css('--muted'); x.font = '13px ' + css('--font'); x.textAlign = 'center'; x.fillText(`First check after update ${S.evalEvery || 100}`, w / 2, h / 2); return; }
+  const x0 = 0, x1 = Math.max(V[V.length - 1].version, 1);
+  const [lo, hi] = range(V.map(v => v.loss)), [plo, phi] = range(V.map(v => v.lr_p));
+  axes(x, w, h, lo, hi, 'left', 3);
+  x.fillStyle = css('--muted');
+  for (let k = 0; k <= 4; k++) { const y = 10 + (h - 34) * k / 4; x.textAlign = 'left'; x.fillText((100 * (phi - (phi - plo) * k / 4)).toFixed(0) + '%', w - 40, y + 4); }
+  x.textAlign = 'center'; x.fillText('update', w / 2, h - 6);
+  line(x, w, h, V.map(v => [v.version, v.loss]), x0, x1, lo, hi, css('--val'));
+  line(x, w, h, V.map(v => [v.version, v.lr_p]), x0, x1, plo, phi, css('--good'));
+  V.forEach(v => { for (const [val, a, b, c] of [[v.loss, lo, hi, '--val'], [v.lr_p, plo, phi, '--good']]) { const px = 44 + (w - 88) * v.version / x1, py = 10 + (h - 34) * (b - val) / (b - a); x.fillStyle = css(c); x.beginPath(); x.arc(px, py, 3, 0, 7); x.fill(); } });
+}
+function render(S) {
+  $('k-upd').textContent = fmt(S.version);
+  $('k-upd-s').textContent = S.finished ? 'training finished' : `epoch ${Math.min(S.epoch + 1, S.epochs)} of ${S.epochs} · ${Math.round(100 * S.chains / Math.max(1, S.total_chains))}% of the chains`;
+  $('k-upd-b').style.width = Math.min(100, 100 * S.chains / Math.max(1, S.total_chains)) + '%';
+  $('k-ch').textContent = fmt(S.chains);
+  $('k-ch-s').textContent = `${fmt(S.ntrain)} chains per epoch`;
+  const live = S.workers.filter(w => w.seen < 90);
+  $('k-rate').textContent = (live.reduce((a, w) => a + w.rate, 0) * 60).toFixed(1);
+  $('k-w').textContent = live.length;
+  $('k-w-s').textContent = `${S.workers.length} joined · ${S.rejected} results rejected`;
+  $('uptime').textContent = 'running ' + dur(S.uptime) + (S.best ? ` · best held-out loss ${S.best.loss.toFixed(3)} at update ${S.best.version}` : '');
+  const rows = S.workers.slice().sort((a, b) => b.chains - a.chains);
+  $('t-w').innerHTML = rows.length ? '<thead><tr><th>Computer</th><th>Device</th><th>Status</th><th class="num">Units</th><th class="num">Chains</th><th class="num">Chains / min</th><th class="num">Rejected</th></tr></thead><tbody>' +
+    rows.map(w => {
+      const st = w.seen > 90 ? ['var(--muted)', 'gone'] : w.busy ? ['var(--good)', 'computing'] : ['var(--warn)', 'idle'];
+      return `<tr><td><b>${esc(w.name)}</b></td><td>${esc(w.device)}</td><td><span class="state"><span class="dot" style="background:${st[0]}"></span>${st[1]}</span></td><td class="num">${fmt(w.units)}</td><td class="num">${fmt(w.chains)}</td><td class="num">${(w.rate * 60).toFixed(1)}</td><td class="num">${fmt(w.rejected)}</td></tr>`;
+    }).join('') + '</tbody>' : '<tbody><tr><td class="empty">No computers yet. Start one with the command below.</td></tr></tbody>';
+  const host = location.hostname === 'localhost' || location.hostname === '127.0.0.1' ? '<this computer\'s address>' : location.hostname;
+  $('cmd').textContent = `python contribute.py --server http://${host}:${location.port || 80} --token ${S.token || '<token from the person running the coordinator>'}`;
+  $('cmd-note').textContent = S.token ? 'The token is shown here because you opened this page on the coordinator itself. Share it only with computers you trust: it lets them download the training data and send updates.' : '';
+  drawLoss(S); drawVal(S);
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+let last = null;
+async function poll() {
+  try {
+    const r = await fetch('api/status', { cache: 'no-store' });
+    last = await r.json(); render(last);
+    $('conn').dataset.s = last.finished ? '' : 'live'; $('conn-t').textContent = last.finished ? 'Finished' : 'Live';
+  } catch (e) { $('conn').dataset.s = 'off'; $('conn-t').textContent = 'Coordinator not reachable'; }
+  setTimeout(poll, 3000);
+}
+addEventListener('resize', () => last && render(last));
+poll();
+</script>
+</body>
+</html>

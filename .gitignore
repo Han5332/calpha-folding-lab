@@ -3,3 +3,5 @@
 # live training state written by the local collector
 monitor/status.json
 monitor/snapshots.json
+__pycache__/
+distributed/run*/
