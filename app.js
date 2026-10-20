@@ -70,7 +70,9 @@
     go: {},
   };
   const STEP_CHOICES = [50e3, 100e3, 150e3, 200e3, 300e3, 400e3, 500e3, 600e3, 800e3, 1e6, 1.2e6, 1.5e6, 2e6, 3e6, 4e6, 5e6, 6e6, 8e6, 10e6, 12e6, 15e6, 20e6, 25e6, 30e6, 40e6, 50e6, 75e6, 100e6];
-  const MAX_RES = 300;   // longest chain the lab accepts (the network was trained on 10–400 residues)
+  // longest chain the lab accepts. Above Evo.FULL_MAX the network runs window by window, above F.LEAN_N the engine skips
+  // per-pair arrays (knowledge-based and MSA + AI only)
+  const MAX_RES = 5000;
   function autoStepsIdx(n) {
     const want = clamp(15000 * n, 150e3, 1.2e6);
     let best = 0;
@@ -160,7 +162,33 @@
     return t.lmCache[key];
   }
   const engineModel = m => (m === 'evo' ? 'kb' : m);
+  // Above this length the fragment search takes seconds (≈10 s at 5,000 residues), so it runs in a worker and the run
+  // waits for it, as it does for the MSA pipeline. lmSpec: the cache key and secondary structure a method's model uses.
+  const LOCAL_ASYNC_N = 1000;
+  function lmSpec(t, method, ss) {
+    if (method !== 'kb' && method !== 'evo') return null;
+    const real = ss === 'real' && t.ss;
+    if (real) return ['real', t.ss];
+    return method === 'evo' && evoReady(t) && !t.evo.shallow ? ['ai', t.evo.labels] : ['pred', null];
+  }
+  const lmMissing = (t, spec) => spec && !t.lmCache[spec[0]] && t.seq.length > LOCAL_ASYNC_N;
+  // shortcut: a build still running when the network labels change (new alignment) caches the old 'ai' model; rerun the fold if that happens
+  function buildLocalAsync(t, [key, ss]) {
+    const pend = t.lmPending || (t.lmPending = {});
+    if (pend[key]) return pend[key];
+    return (pend[key] = new Promise(resolve => {
+      const done = lm => { delete pend[key]; t.lmCache[key] = lm; resolve(); };
+      const here = () => setTimeout(() => done(F.buildLocalModel(t.seq, { ss })), 30);
+      let w;
+      try { w = new Worker('worker.js?v11'); } catch (e) { here(); return; }
+      w.onmessage = e => { w.terminate(); done(e.data.lm); };
+      w.onerror = e => { e.preventDefault(); w.terminate(); here(); };
+      w.postMessage({ type: 'local', seq: t.seq, ss });
+    }));
+  }
   function methodInputs(t, method, ss) {
+    const spec = lmSpec(t, method, ss);
+    if (lmMissing(t, spec)) return { ssWeights: null, local: null, pred: null, restraints: null, needsLocal: true };
     if (method === 'evo') {
       const ev = t.evo, real = ss === 'real' && t.ss;
       if (!ev || ev.status !== 'ready') { const lm = localModel(t, ss); return { ssWeights: lm.probs, local: lm.local, pred: lm.labels, restraints: null, needsEvo: true }; }
@@ -195,7 +223,7 @@
     const run = {
       id: Date.now(), target: t, method: m, ssSource: m === 'go' ? null : state.ssSource,
       params: Object.assign({}, state.params[m]), steps, every: sampleEvery(steps), tHi: state.tHi, tLo: state.tLo,
-      seed: state.seed, R: state.replicas, ssWeights: inp.ssWeights, local: inp.local, pred: inp.pred, restraints: inp.restraints || null, needsEvo: !!inp.needsEvo, frags: inp.frags || null, stopAtFold, stopHit: null, hopSteps: m === 'go' || !state.hopOn ? 0 : HOP_PATIENCE, hopSeverity: state.hopSeverity, get hop() { return this.hopSteps > 0 || this.hopUsed; }, hopUsed: false,
+      seed: state.seed, R: state.replicas, ssWeights: inp.ssWeights, local: inp.local, pred: inp.pred, restraints: inp.restraints || null, needsEvo: !!inp.needsEvo, needsLocal: !!inp.needsLocal, frags: inp.frags || null, stopAtFold, stopHit: null, hopSteps: m === 'go' || !state.hopOn ? 0 : HOP_PATIENCE, hopSeverity: state.hopSeverity, get hop() { return this.hopSteps > 0 || this.hopUsed; }, hopUsed: false,
       status: 'ready', late: [], final: null, runner: null, startedAt: 0, elapsed: 0,
     };
     // blind run control (Fold.RunMonitor): only for runs steered by network restraints, like the dihedral-aware selection
@@ -211,8 +239,8 @@
       run.reps.push(rep);
       pushSample(run, rep, { step: 0, T: run.tHi, E: NaN, x: Float32Array.from(x) }, true);
     }
-    run.sys = buildSys(run);
-    nativeEnergies(run);
+    // long chains: the two native relaxations would hold the page for seconds here, so they wait for the end of the run
+    if (!inp.needsLocal) { run.sys = buildSys(run); if (t.seq.length <= LOCAL_ASYNC_N) nativeEnergies(run); }
     state.run = run; state.focus = 0; state.scrub = null; state.frame = 'live'; state.replaying = false;
     prevDisplay = null;
     dirty.all(); renderControls(); renderReplicas();
@@ -235,7 +263,7 @@
   // ---------- runners ----------
   function WorkerRunner(run, onMsg) {
     this.workers = run.reps.map(rep => {
-      const w = new Worker('worker.js?v9');
+      const w = new Worker('worker.js?v11');
       w.onmessage = e => onMsg(rep.r, e.data);
       w.onerror = e => { e.preventDefault(); onMsg(rep.r, { type: 'error', message: e.message || 'worker failed' }); };
       return w;
@@ -317,6 +345,13 @@
   let evoWait = null;
   function startRun() {
     let run = state.run;
+    const spec = lmSpec(state.target, state.method, state.ssSource);
+    if (lmMissing(state.target, spec) && !(state.method === 'evo' && !evoReady(state.target))) {
+      const t = state.target, m = state.method, token = evoWait = { local: true };
+      buildLocalAsync(t, spec).then(() => { if (evoWait === token && state.target === t && state.method === m) { evoWait = null; newRun(); startRun(); } });
+      renderControls();
+      return;
+    }
     if (state.method === 'evo' && !evoReady(state.target)) {
       const t = state.target, token = evoWait = {};
       ensureEvo(t).then(() => { if (evoWait === token && state.target === t && state.method === 'evo') { evoWait = null; newRun(); startRun(); } })
@@ -325,7 +360,7 @@
       return;
     }
     evoWait = null;
-    if (!run || run.status === 'done' || run.target !== state.target || run.method !== state.method || run.needsEvo) run = newRun();
+    if (!run || run.status === 'done' || run.target !== state.target || run.method !== state.method || run.needsEvo || run.needsLocal) run = newRun();
     if (run.status === 'paused') { run.runner.resume(); run.status = 'running'; run.resumedAt = performance.now(); renderControls(); return; }
     run.runner = makeRunner(run);
     run.runner.start();
@@ -465,6 +500,7 @@
       lowest: { x: lowest.x, r: lowest.r, step: lowest.step, E: lowest.E, metrics: scoreOf(lowest.x) },
     };
     run.final.consensus.relaxedE = relaxedEnergy(run.sys, pick.x, 0.05);
+    if (run.nativeE === undefined) nativeEnergies(run);
     state.frame = 'consensus'; state.scrub = null;
     // if any replica passed through a near-native frame, end on it (picked with the answer, so labelled as such)
     const cl = run.closest;
@@ -893,6 +929,26 @@
   tracks.canvas.addEventListener('pointerleave', hideTip);
 
   // ---------- contact map ----------
+  // Pair maps with more residues than this are drawn as one image, a pixel per cell, instead of a rectangle per pair
+  // (n² rectangles stall the page long before 5,000 residues).
+  const PAIR_RECT_MAX = 300;
+  // shortcut: each cell shows the pair at its centre, so thin features can drop out when n ≫ size; use the block maximum if that matters
+  function pairImage(ctx, x0, y0, size, n, color) {
+    const S = Math.max(1, Math.min(n, Math.round(size))), f = n / S, img = ctx.createImageData(S, S), d = img.data;
+    for (let a = 0; a < S; a++) {
+      const i = Math.floor((a + 0.5) * f);
+      for (let b = 0; b < S; b++) {
+        const j = Math.floor((b + 0.5) * f), c = i === j ? null : color(i, j);
+        if (!c) continue;
+        const o = 4 * (a * S + b);
+        d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; d[o + 3] = 255;
+      }
+    }
+    const off = document.createElement('canvas');
+    off.width = off.height = S; off.getContext('2d').putImageData(img, 0, 0);
+    ctx.save(); ctx.imageSmoothingEnabled = false; ctx.drawImage(off, x0, y0, size, size); ctx.restore();
+  }
+  const axisEvery = n => (n > 2000 ? 500 : n > 400 ? 100 : n > 40 ? 20 : 10);
   const cmap = { canvas: $('cmap'), layout: null };
   function drawCmap() {
     if (!state.run) return;
@@ -903,7 +959,8 @@
     cmap.layout = { x0, y0, cs, n };
     const lo = trgb['heat-lo'], hi = trgb['heat-hi'], model = shown().x, N = t.X;
     const close = d => clamp((12 - d) / 8, 0, 1);
-    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    if (n > PAIR_RECT_MAX) pairImage(ctx, x0, y0, size, n, (i, j) => (j > i ? mix(lo, hi, close(F.dist(model, i, j))) : N ? mix(lo, hi, close(F.dist(N, i, j))) : null));
+    else for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
       let d;
       if (j > i) d = F.dist(model, i, j); else if (j < i) { if (!N) continue; d = F.dist(N, i, j); } else continue;
       ctx.fillStyle = css(mix(lo, hi, close(d)));
@@ -912,7 +969,7 @@
     ctx.strokeStyle = theme.line; ctx.lineWidth = 1; ctx.strokeRect(x0 + 0.5, y0 + 0.5, size, size);
     ctx.strokeStyle = theme.muted; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x0 + size, y0 + size); ctx.stroke();
     ctx.fillStyle = theme.muted; ctx.font = `11px ${theme.fontMono}`;
-    const first = t.first || 1, every = n > 40 ? 20 : 10;
+    const first = t.first || 1, every = axisEvery(n);
     for (let i = 0; i < n; i++) if ((first + i) % every === 0) { ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillText(String(first + i), x0 - 5, y0 + (i + 0.5) * cs); }
     const label = (txt, x, y, align) => {
       ctx.font = `500 12px ${theme.fontUi}`;
@@ -1160,8 +1217,14 @@
   }
   function runEvoHere(m) {
     const a = m.text != null ? Evo.parseAlignment(m.text, m.query) : { rows: m.rows, format: m.format, dropped: 0 };
-    const msa = Evo.process(m.query, a.rows), t0 = performance.now(), feat = Evo.features(msa), t1 = performance.now();
     if (!runEvoHere.model) runEvoHere.model = Evo.loadModel(EVO_MODEL);
+    const msa = Evo.process(m.query, a.rows), t0 = performance.now();
+    if (m.query.length > Evo.FULL_MAX) {
+      const p = Evo.predictLong(runEvoHere.model, m.query, a.rows);
+      return { format: a.format, dropped: a.dropped, input: a.rows.length, N: msa.N, L: msa.L, X: msa.X, neff: p.neff, band: p.band, windows: p.windows,
+        dca: null, mi: null, conservation: p.conservation, ss: p.ss, dist: p.dist, ms: { filter: 0, dca: 0, net: performance.now() - t0 } };
+    }
+    const feat = Evo.features(msa), t1 = performance.now();
     const pred = Evo.predict(runEvoHere.model, feat), t2 = performance.now();
     return { format: a.format, dropped: a.dropped, input: a.rows.length, N: msa.N, L: msa.L, X: msa.X, neff: feat.neff, dca: Float32Array.from(feat.dca), mi: Float32Array.from(feat.mi),
       conservation: feat.conservation, ss: pred.ss, dist: pred.dist, ms: { filter: 0, dca: t1 - t0, net: t2 - t1 } };
@@ -1170,7 +1233,7 @@
     if (evoWorker === false || typeof Worker === 'undefined') return null;
     if (evoWorker) return evoWorker;
     try {
-      evoWorker = new Worker('evo-worker.js?v8d');
+      evoWorker = new Worker('evo-worker.js?v11');
       evoWorker.onmessage = e => {
         const m = e.data, job = evoJobs.get(m.id);
         if (!job) return;
@@ -1190,6 +1253,15 @@
       return evoWorker;
     } catch (e) { evoWorker = false; return null; }
   }
+  // A superseded job (a new alignment for the same protein) can run for many minutes on a long chain and would hold up
+  // the new one: restart the worker without it, re-sending the jobs that are still wanted.
+  function dropStaleEvo() {
+    const jobs = [...evoJobs.values()];
+    if (!evoWorker || !jobs.some(j => j.t.evo !== j.ev)) return;
+    evoWorker.terminate(); evoWorker = null; evoJobs.clear();
+    const w = getEvoWorker();
+    jobs.filter(j => j.t.evo === j.ev).forEach(j => { if (w) { evoJobs.set(j.ev.id, j); w.postMessage(j.msg); } else j.fail('The MSA worker stopped.'); });
+  }
   function ensureEvo(t) {
     if (evoReady(t)) return Promise.resolve(t.evo);
     if (t.evo && t.evo.status === 'running') return t.evo.promise;
@@ -1200,8 +1272,9 @@
       const done = res => { if (t.evo !== ev) return; finishEvo(t, ev, res); resolve(ev); };
       const fail = msg => { if (t.evo !== ev) return; ev.status = 'error'; ev.error = msg; dirty.evo = true; renderControls(); reject(new Error(msg)); };
       const msg = { type: 'run', id, query: t.seq, rows: inp.rows, text: inp.text, format: inp.source === 'built-in' ? 'A3M' : 'none' };
+      dropStaleEvo();
       const w = getEvoWorker();
-      if (w) { evoJobs.set(id, { ev, done, fail, msg }); w.postMessage(msg); }
+      if (w) { evoJobs.set(id, { t, ev, done, fail, msg }); w.postMessage(msg); }
       else setTimeout(() => { try { done(runEvoHere(msg)); } catch (err) { fail(err.message); } }, 30);
     });
     ev.promise.catch(() => {});
@@ -1210,7 +1283,7 @@
   }
   function finishEvo(t, ev, res) {
     Object.assign(ev, res);
-    const L = res.L, pred = { L, ss: res.ss, dist: res.dist };
+    const L = res.L, pred = { L, ss: res.ss, dist: res.dist, band: res.band };
     ev.pred = pred;
     ev.labelsNet = Evo.ssLabels(pred);
     ev.labels = EVO_SS_MIX != null ? Evo.ssLabels(pred, localModel(t, 'pred').probs, EVO_SS_MIX) : ev.labelsNet;
@@ -1226,21 +1299,22 @@
     ev.identity = id;
     if (t.X) {
       const k = Math.max(1, L >> 1);
-      ev.prec = Evo.precision(ev.cmap, L, t.X, 12, 1e9, k);
-      ev.precDCA = Evo.precision(ev.dca, L, t.X, 12, 1e9, k);
+      ev.prec = Evo.precision(ev.cmap, L, t.X, 12, 1e9, k, 8, ev.band);
+      ev.precDCA = ev.dca ? Evo.precision(ev.dca, L, t.X, 12, 1e9, k) : null;
     }
-    if (t.ss) { ev.q3 = F.q3(ev.labels, t.ss); ev.q3net = F.q3(ev.labelsNet, t.ss); ev.q3frag = F.q3(localModel(t, 'pred').labels, t.ss); }
+    if (t.ss) { ev.q3 = F.q3(ev.labels, t.ss); ev.q3net = F.q3(ev.labelsNet, t.ss); ev.q3frag = lmMissing(t, ['pred']) ? null : F.q3(localModel(t, 'pred').labels, t.ss); }
     delete t.lmCache.ai;
     ev.shallow = ev.neff < EVO_NEFF_MIN;
     ev.status = 'ready';
     dirty.evo = true;
     renderControls();
   }
-  const EVO_STAGE = { align: 'Aligning homologs', filter: 'Filtering alignment', dca: 'Coevolution (DCA)', net: 'Neural network' };
+  const EVO_STAGE = { align: 'Aligning homologs', filter: 'Filtering alignment', dca: 'Coevolution (DCA)', net: 'Neural network', win: 'Coevolution + network, window by window' };
+  const evoBarStage = s => s === 'dca' || s === 'net' || s === 'win';
   function evoStatusText(t) {
     const ev = t.evo;
     if (!ev || ev.status !== 'running') return 'Preparing MSA';
-    return `${EVO_STAGE[ev.stage] || 'Working'}${ev.stage === 'dca' || ev.stage === 'net' ? ' · ' + Math.round(100 * (ev.frac || 0)) + '%' : ''}`;
+    return `${EVO_STAGE[ev.stage] || 'Working'}${evoBarStage(ev.stage) ? ' · ' + Math.round(100 * (ev.frac || 0)) + '%' : ''}`;
   }
 
   // residue colours for the alignment (Clustal-like classes)
@@ -1248,22 +1322,25 @@
   [['AILMFWV', [64, 120, 220]], ['KR', [224, 76, 70]], ['DE', [196, 84, 205]], ['NQST', [46, 170, 98]], ['C', [236, 128, 158]], ['G', [236, 150, 48]], ['P', [204, 182, 40]], ['HY', [36, 170, 186]]]
     .forEach(([aa, rgb]) => { for (const c of aa) AA_CLASS[c] = rgb; });
   const evoView = { map: 'ai', msaLayout: null, mapLayout: null };
+  // index of pair (i, j) in ev.cmap / ev.dexp, −1 beyond a banded (windowed) prediction
+  const pairAt = (ev, i, j) => { const a = Math.min(i, j), b = Math.max(i, j); return ev.band ? (b - a < ev.band ? a * ev.band + b - a : -1) : a * ev.L + b; };
   function renderEvo() {
     const t = state.target, pipe = $('evo-pipe');
     if (!pipe) return;
     if (!t.evo && state.tab === 'evo') ensureEvo(t).catch(() => {});
     const ev = t.evo;
     const L = t.seq.length, run = ev && ev.status === 'running', ready = evoReady(t);
-    const stageIdx = !ev ? -1 : ready ? 4 : ({ align: 0, filter: 0, dca: 1, net: 2 }[ev.stage] || 0);
+    const stageIdx = !ev ? -1 : ready ? 4 : ({ align: 0, filter: 0, dca: 1, win: 1, net: 2 }[ev.stage] || 0);
     const st = k => (stageIdx > k ? 'done' : stageIdx === k && run ? 'run' : 'wait');
-    const bar = k => (stageIdx === k && run && (ev.stage === 'dca' || ev.stage === 'net') ? `<i class="bar" style="width:${(100 * (ev.frac || 0)).toFixed(0)}%"></i>` : '');
+    const bar = k => (stageIdx === k && run && evoBarStage(ev.stage) ? `<i class="bar" style="width:${(100 * (ev.frac || 0)).toFixed(0)}%"></i>` : '');
     const inp = ev || evoInput(t);
     const msaB = ready ? `${fmtInt(ev.N - 1)} <small>homolog${ev.N === 2 ? '' : 's'}</small>` : inp.source === 'none' ? 'none' : '…';
     const msaD = ready ? `${inp.source === 'built-in' ? fmtInt(ev.hits) + ' found, ' : fmtInt(ev.input) + ' read, '}filtered to ${fmtInt(ev.N - 1)}. Neff ${f1(ev.neff)} (${f2(ev.neff / L)} per residue)` : esc(inp.label || '');
     const steps = [
       ['1 · Alignment', msaB, msaD],
+      ready && ev.band ? ['2 · Coevolution', `${ev.windows} <small>windows</small>`, `Too long for one ${fmtInt(20 * L)}² matrix: DCA and the network run on ${ev.windows} half-overlapping windows of ${ev.band} residues, ${Math.round(ev.ms.net / 1000)} s in all`] :
       ['2 · Coevolution', ready ? `${fmtInt(20 * L)}² <small>matrix</small>` : 'DCA', ready ? `Mean-field DCA inverts the pair covariance; APC removes background. ${ev.ms.stored ? 'Precomputed for this built-in protein.' : Math.round(ev.ms.dca) + ' ms'}` : 'Residues that mutate together are likely in contact'],
-      ['3 · Neural network', ready ? `${fmtInt(EVO_MODEL.params / 1000)}k <small>parameters</small>` : 'ResNet', ready ? `1D + 2D dilated residual CNN → 18-bin Cα distance histogram for ${fmtInt(L * (L - 1) / 2)} pairs. ${ev.ms.stored ? `Precomputed for this built-in protein; loaded in ${Math.round(ev.ms.net)} ms.` : Math.round(ev.ms.net) + ' ms'}` : 'Distance histogram and secondary structure for every residue'],
+      ['3 · Neural network', ready ? `${fmtInt(EVO_MODEL.params / 1000)}k <small>parameters</small>` : 'ResNet', ready ? `1D + 2D dilated residual CNN → 18-bin Cα distance histogram for ${ev.band ? `pairs up to ${ev.band - 1} apart (farther pairs get no restraint)` : `${fmtInt(L * (L - 1) / 2)} pairs`}. ${ev.ms.stored ? `Precomputed for this built-in protein; loaded in ${Math.round(ev.ms.net)} ms.` : ev.band ? 'Timed with step 2.' : Math.round(ev.ms.net) + ' ms'}` : 'Distance histogram and secondary structure for every residue'],
       ['4 · Restraints', ready ? (ev.shallow ? 'off <small>too few homologs</small>' : `${fmtInt(ev.rest.I.length)} <small>pair potentials</small>`) : '→ fold', ready ? (ev.shallow ? `Neff ${f1(ev.neff)} is below ${EVO_NEFF_MIN}, too little for the network to be trusted: folding uses fragment secondary structure and no AI restraints (the v2 inputs).` : 'Smooth −ln p(d)/p_ref(d) curves added to the force field of “MSA + AI”') : 'The predictions steer the folding run'],
     ];
     pipe.innerHTML = steps.map(([k, b, d], i) => `<div class="step" data-s="${st(i)}"><span class="k"><i></i>${k}</span><b>${b}</b><span class="d">${d}</span>${bar(i)}</div>`).join('');
@@ -1349,7 +1426,9 @@
     const { ctx } = setup(c, size + pad + 6, W);
     const cs = size / L, x0 = pad, y0 = 6;
     evoView.mapLayout = { x0, y0, cs, L };
-    const lo = trgb['heat-lo'], hi = trgb['heat-hi'], useDca = evoView.map === 'dca';
+    const dcaBtn = $('evo-map-seg').querySelector('[data-v="dca"]');
+    dcaBtn.disabled = !ev.dca; dcaBtn.title = ev.dca ? '' : `No full coevolution matrix above ${Evo.FULL_MAX} residues`;
+    const lo = trgb['heat-lo'], hi = trgb['heat-hi'], useDca = evoView.map === 'dca' && !!ev.dca;
     // DCA scores to 0–1 via their z-score (top pairs ≈ 4σ)
     let dm = 0, dsd = 1;
     if (useDca) {
@@ -1357,20 +1436,27 @@
       for (let i = 0; i < L; i++) for (let j = i + 1; j < L; j++) { const v = ev.dca[i * L + j]; s += v; q += v * v; n++; }
       dm = s / n; dsd = Math.sqrt(Math.max(1e-12, q / n - dm * dm));
     }
-    const score = (i, j) => (useDca ? clamp((ev.dca[i * L + j] - dm) / dsd / 4, 0, 1) : ev.cmap[i * L + j]);
-    for (let i = 0; i < L; i++) for (let j = i + 1; j < L; j++) {
+    const score = (i, j) => { if (useDca) return clamp((ev.dca[i * L + j] - dm) / dsd / 4, 0, 1); const k = pairAt(ev, i, j); return k < 0 ? 0 : ev.cmap[k]; };
+    const contactRgb = mix(lo, trgb.coil, 0.9);
+    if (L > PAIR_RECT_MAX) pairImage(ctx, x0, y0, size, L, (i, j) => (j > i ? mix(lo, hi, score(i, j)) : !t.X ? mix(lo, hi, score(j, i)) : i - j >= 3 && F.dist(t.X, j, i) < 8 ? contactRgb : null));
+    else for (let i = 0; i < L; i++) for (let j = i + 1; j < L; j++) {
       ctx.fillStyle = css(mix(lo, hi, score(i, j)));
       ctx.fillRect(x0 + j * cs, y0 + i * cs, Math.ceil(cs), Math.ceil(cs));
       if (!t.X) { ctx.fillRect(x0 + i * cs, y0 + j * cs, Math.ceil(cs), Math.ceil(cs)); }
     }
     // lower triangle: PDB contacts, then the top-L predictions marked right / wrong
-    const top = [];
-    for (let i = 0; i < L; i++) for (let j = i + 6; j < L; j++) top.push([score(i, j), i, j]);
-    top.sort((a, b) => b[0] - a[0]);
-    const k = Math.min(top.length, L);
+    // top-L pairs ≥ 6 apart, kept per map: sorting every pair of a long chain on each redraw would stall the page
+    const tops = ev.tops || (ev.tops = {}), key = useDca ? 'dca' : 'ai';
+    if (!tops[key]) {
+      const all = [];
+      for (let i = 0; i < L; i++) for (let j = i + 6; j < (ev.band ? Math.min(L, i + ev.band) : L); j++) all.push([score(i, j), i, j]);
+      all.sort((a, b) => b[0] - a[0]);
+      tops[key] = all.slice(0, L);
+    }
+    const top = tops[key], k = top.length;
     if (t.X) {
-      ctx.fillStyle = css(mix(lo, trgb.coil, 0.9));
-      for (let i = 0; i < L; i++) for (let j = i + 3; j < L; j++) if (F.dist(t.X, i, j) < 8) ctx.fillRect(x0 + i * cs, y0 + j * cs, Math.ceil(cs), Math.ceil(cs));
+      ctx.fillStyle = css(contactRgb);
+      if (L <= PAIR_RECT_MAX) for (let i = 0; i < L; i++) for (let j = i + 3; j < L; j++) if (F.dist(t.X, i, j) < 8) ctx.fillRect(x0 + i * cs, y0 + j * cs, Math.ceil(cs), Math.ceil(cs));
       for (let q = 0; q < k; q++) {
         const [, i, j] = top[q], ok = F.dist(t.X, i, j) < 8, r = Math.max(1.6, cs * 0.42);
         ctx.beginPath(); ctx.arc(x0 + (i + 0.5) * cs, y0 + (j + 0.5) * cs, r, 0, 2 * Math.PI);
@@ -1380,7 +1466,7 @@
     ctx.strokeStyle = theme.line; ctx.lineWidth = 1; ctx.strokeRect(x0 + 0.5, y0 + 0.5, size, size);
     ctx.strokeStyle = theme.muted; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x0 + size, y0 + size); ctx.stroke();
     ctx.fillStyle = theme.muted; ctx.font = `11px ${theme.fontMono}`;
-    const first = t.first || 1, every = L > 40 ? 20 : 10;
+    const first = t.first || 1, every = axisEvery(L);
     for (let i = 0; i < L; i++) if ((first + i) % every === 0) { ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillText(String(first + i), x0 - 5, y0 + (i + 0.5) * cs); }
     const label = (txt, x, y, align) => {
       ctx.font = `500 12px ${theme.fontUi}`;
@@ -1401,8 +1487,10 @@
     if (!Lr || !evoReady(t)) return;
     const r = $('evo-map').getBoundingClientRect(), j = Math.floor((e.clientX - r.left - Lr.x0) / Lr.cs), i = Math.floor((e.clientY - r.top - Lr.y0) / Lr.cs);
     if (i < 0 || j < 0 || i >= Lr.L || j >= Lr.L || i === j) { hideTip(); return; }
-    const a = Math.min(i, j), b = Math.max(i, j), L = Lr.L, first = t.first || 1;
-    const rows = [['P(contact)', pct(ev.cmap[a * L + b])], ['Predicted distance', f1(ev.dexp[a * L + b]) + ' Å'], ['DCA score', f2(ev.dca[a * L + b])]];
+    const a = Math.min(i, j), b = Math.max(i, j), L = Lr.L, first = t.first || 1, k = pairAt(ev, a, b);
+    // banded predictions: pairs beyond the band, or not inside any one window, have no prediction (all-zero histogram)
+    const rows = k >= 0 && ev.dexp[k] > 0 ? [['P(contact)', pct(ev.cmap[k])], ['Predicted distance', f1(ev.dexp[k]) + ' Å']] : [['Network', 'no prediction this far apart']];
+    if (ev.dca) rows.push(['DCA score', f2(ev.dca[a * L + b])]);
     if (t.X) rows.push(['PDB distance', f1(F.dist(t.X, a, b)) + ' Å']);
     showTip(`<b>${AA3[t.seq[a]] || t.seq[a]} ${first + a} – ${AA3[t.seq[b]] || t.seq[b]} ${first + b}</b>` + tipRows(rows), e.clientX, e.clientY);
   }
@@ -1416,7 +1504,7 @@
     for (let s = 1; s < ev.N; s++) { const c = ev.X[s * L + i]; if (c !== 20) { cnt[c] = (cnt[c] || 0) + 1; n++; } }
     const common = Object.entries(cnt).sort((x, y) => y[1] - x[1]).slice(0, 4).map(([c, v]) => Evo.ALPH[c] + ' ' + pct(v / n)).join(', ');
     let best = -1, bp = 0;
-    for (let j = 0; j < L; j++) if (Math.abs(j - i) >= 6 && ev.cmap[i * L + j] > bp) { bp = ev.cmap[i * L + j]; best = j; }
+    for (let j = 0; j < L; j++) { const k = Math.abs(j - i) >= 6 ? pairAt(ev, i, j) : -1; if (k >= 0 && ev.cmap[k] > bp) { bp = ev.cmap[k]; best = j; } }
     const first = t.first || 1, ss = ev.pred.ss;
     const rows = [['Conservation', pct(ev.conservation[i])], ['Most common', common || '–'], ['AI: helix / strand / coil', `${pct(ss[3 * i])} / ${pct(ss[3 * i + 1])} / ${pct(ss[3 * i + 2])}`]];
     if (best >= 0) rows.push(['Likeliest partner', `${t.seq[best]}${first + best} (${pct(bp)})`]);
@@ -1534,9 +1622,11 @@
     }).join('');
     list.querySelectorAll('.prot').forEach(b => b.addEventListener('click', () => { state.queue = []; selectTarget(items[+b.dataset.k]); startRun(); }));
   }
+  // Gō needs a PDB structure; methods other than knowledge-based and MSA + AI keep per-pair arrays, so stop at F.LEAN_N
+  const methodOk = (k, t) => !(k === 'go' && !t.X) && (k === 'kb' || k === 'evo' || t.seq.length <= F.LEAN_N);
   function renderMethods() {
     const el = $('methods'), t = state.target;
-    el.innerHTML = Object.entries(METHODS).map(([k, m]) => `<button type="button" class="method" role="radio" aria-checked="${k === state.method}" data-m="${k}" ${k === 'go' && !t.X ? 'disabled' : ''}>
+    el.innerHTML = Object.entries(METHODS).map(([k, m]) => `<button type="button" class="method" role="radio" aria-checked="${k === state.method}" data-m="${k}" ${methodOk(k, t) ? '' : 'disabled'}${t.seq.length > F.LEAN_N && k !== 'kb' && k !== 'evo' ? ` title="Up to ${F.LEAN_N} residues"` : ''}>
       <span class="radio"></span><b>${m.name}${m.badge ? `<span class="badge">${m.badge}</span>` : ''}</b><span class="d">${m.desc}</span></button>`).join('');
     el.querySelectorAll('.method').forEach(b => b.addEventListener('click', () => {
       if (b.disabled || b.dataset.m === state.method) return;
@@ -1550,7 +1640,7 @@
     delete $('msa-msg').dataset.keep;
     dirty.evo = true;
     state.stepsIdx = autoStepsIdx(t.seq.length);
-    if (!t.X && state.method === 'go') { state.method = 'kb'; state.tHi = METHODS.kb.tHi; state.tLo = METHODS.kb.tLo; }
+    if (!methodOk(state.method, t)) { state.method = 'kb'; state.tHi = METHODS.kb.tHi; state.tLo = METHODS.kb.tLo; }
     state.ssSource = state.ssPref === 'real' && t.ss ? 'real' : 'pred';
     topoFor = null;
     renderProteins(); renderMethods(); buildSliders();
@@ -1598,10 +1688,10 @@
   }
   function liveParams() {
     const run = state.run;
-    if (!run || run.status === 'done' || run.method !== state.method) return;
+    if (!run || run.status === 'done' || run.method !== state.method || run.needsLocal) return;
     run.params = Object.assign({}, state.params[state.method]);
     run.sys = buildSys(run);
-    nativeEnergies(run);
+    if (run.target.seq.length <= LOCAL_ASYNC_N) nativeEnergies(run); else run.nativeE = run.nativeEThermal = undefined;   // recomputed at the end
     if (run.runner) run.runner.update({ params: run.params }, true);
     dirty.charts = true;
   }
@@ -1662,7 +1752,7 @@
     btn.textContent = !run ? 'Fold' : run.status === 'running' ? 'Pause' : run.status === 'paused' ? 'Resume' : run.status === 'done' ? 'Fold again' : 'Fold';
     $('run-all').textContent = state.queue.length ? `Stop after this run (${state.queue.length} left)` : `Run all ${BUILTIN.length === 10 ? 'ten' : BUILTIN.length}`;
     const st = $('status'), steps = run ? Math.min(...run.reps.map(r => r.step)) : 0, frac = run ? steps / run.steps : 0;
-    if (evoWait) { st.dataset.state = 'running'; $('status-text').textContent = evoStatusText(t); }
+    if (evoWait) { st.dataset.state = 'running'; $('status-text').textContent = evoWait.local ? 'Picking fragments' : evoStatusText(t); }
     else if (!run || run.status === 'ready') { st.dataset.state = 'idle'; $('status-text').textContent = 'Ready'; }
     else if (run.status === 'running') { st.dataset.state = 'running'; $('status-text').textContent = `Folding ${t.id} · ${frac < 0.1 ? (frac * 100).toFixed(1) : Math.round(frac * 100)}%`; }
     else if (run.status === 'paused') { st.dataset.state = 'paused'; $('status-text').textContent = `Paused at ${Math.round(frac * 100)}%`; }

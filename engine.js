@@ -144,22 +144,28 @@
     let picked = 0;
     for (const [L, K, wgt] of sizes) {
       if (L > n) continue;
-      for (let p = 0; p + L <= n; p++) {
-        const bestS = new Float64Array(K).fill(-1e9), bestI = new Int32Array(K).fill(-1);
-        for (let st = 0; st + L <= D.n; st++) {
-          let sc = 0, bad = -1;
-          for (let k = 0; k < L; k++) {
-            const a = D.aa[st + k];
-            if (a === 255) { bad = k; break; }
-            sc += B[tgt[p + k] * 20 + a];
-            if (hint && D.ss[st + k] === hint[p + k]) sc += bonus;
+      const P = n - L + 1, allS = new Float64Array(P * K).fill(-1e9), allI = new Int32Array(P * K).fill(-1), thr = new Float64Array(P).fill(-1e9);
+      // window scores as sliding sums along each diagonal st − p = d; d ascending visits every window's starts in
+      // ascending order, so the top-K lists (and their ties) are exactly those of a plain scan per window
+      const pairSc = (i, r) => B[tgt[i] * 20 + D.aa[r]] + (hint && D.ss[r] === hint[i] ? bonus : 0);
+      for (let d = -(P - 1); d + L <= D.n; d++) {
+        const p0 = Math.max(0, -d), p1 = Math.min(P - 1, D.n - L - d);
+        let sc = 0, bad = -1;   // bad: last library position (a chain break) inside the window
+        for (let i = p0; i < p0 + L - 1; i++) { if (D.aa[i + d] === 255) bad = i + d; else sc += pairSc(i, i + d); }
+        for (let p = p0; p <= p1; p++) {
+          const i = p + L - 1;
+          if (D.aa[i + d] === 255) bad = i + d; else sc += pairSc(i, i + d);
+          if (sc > thr[p] && bad < p + d) {   // thr: each window's K-th best, kept contiguous for the common rejection
+            const o = p * K;
+            let q = K - 1;
+            while (q > 0 && allS[o + q - 1] < sc) { allS[o + q] = allS[o + q - 1]; allI[o + q] = allI[o + q - 1]; q--; }
+            allS[o + q] = sc; allI[o + q] = p + d; thr[p] = allS[o + K - 1];
           }
-          if (bad >= 0) { st += bad; continue; }
-          if (sc <= bestS[K - 1]) continue;
-          let q = K - 1;
-          while (q > 0 && bestS[q - 1] < sc) { bestS[q] = bestS[q - 1]; bestI[q] = bestI[q - 1]; q--; }
-          bestS[q] = sc; bestI[q] = st;
+          if (D.aa[p + d] !== 255) sc -= pairSc(p, p + d);
         }
+      }
+      for (let p = 0; p < P; p++) {
+        const bestI = allI.subarray(p * K, p * K + K);
         if (frags[L]) frags[L][p] = Array.from(bestI).filter(s => s >= 0);
         for (let f = 0; f < K; f++) {
           const st = bestI[f];
@@ -168,7 +174,7 @@
           for (let k = 0; k < L; k++) {
             const i = p + k, r = st + k;
             if (i >= 1 && i <= n - 2 && D.theta[r] !== 255) thS[i].push(D.theta[r], wgt);
-            if (i >= 1 && i <= n - 3 && D.phi[r] !== 255) phS[i].push(D.phi[r] / 254 * 360 - 180, wgt);
+            if (i >= 1 && i <= n - 3 && D.phi[r] !== 255) phS[i].push(D.phi[r], wgt);
             votes[3 * i + D.ss[r]] += wgt;
           }
         }
@@ -177,28 +183,22 @@
     // smoothed densities → −ln p on the grids (0 at the most likely angle)
     const theta = new Float32Array(n * THN), phi = new Float32Array(n * PHN);
     const sig = 6, kap = 6, floor = 0.03;
+    // kernels per (grid point, library byte): the same expressions as a direct sum, evaluated once instead of per sample
+    const kTh = new Float64Array(THN * 255), kPh = new Float64Array(PHN * 255);
+    for (let g = 0; g < THN; g++) for (let v = 0; v < 255; v++) { const u = (TH0 + g * THS - v) / sig; kTh[v * THN + g] = Math.exp(-0.5 * u * u); }
+    for (let g = 0; g < PHN; g++) for (let v = 0; v < 255; v++) kPh[v * PHN + g] = Math.exp(kap * (Math.cos((-180 + g * 10) * DEG - (v / 254 * 360 - 180) * DEG) - 1));
     for (let i = 0; i < n; i++) {
       const S = thS[i];
       if (S.length) {
-        const row = new Float64Array(THN);
-        for (let g = 0; g < THN; g++) {
-          const t = TH0 + g * THS;
-          let d = 0;
-          for (let m = 0; m < S.length; m += 2) { const u = (t - S[m]) / sig; d += S[m + 1] * Math.exp(-0.5 * u * u); }
-          row[g] = d;
-        }
+        const row = new Float64Array(THN);   // each row[g] still sums the samples in order m = 0, 1, …
+        for (let m = 0; m < S.length; m += 2) { const w = S[m + 1], o = S[m] * THN; for (let g = 0; g < THN; g++) row[g] += w * kTh[o + g]; }
         const mx = Math.max(...row) || 1;
         for (let g = 0; g < THN; g++) theta[i * THN + g] = -Math.log(row[g] / mx + floor) + Math.log(1 + floor);
       }
       const P = phS[i];
       if (P.length) {
         const row = new Float64Array(PHN);
-        for (let g = 0; g < PHN; g++) {
-          const a = (-180 + g * 10) * DEG;
-          let d = 0;
-          for (let m = 0; m < P.length; m += 2) d += P[m + 1] * Math.exp(kap * (Math.cos(a - P[m] * DEG) - 1));
-          row[g] = d;
-        }
+        for (let m = 0; m < P.length; m += 2) { const w = P[m + 1], o = P[m] * PHN; for (let g = 0; g < PHN; g++) row[g] += w * kPh[o + g]; }
         const mx = Math.max(...row) || 1;
         for (let g = 0; g < PHN; g++) phi[i * PHN + g] = -Math.log(row[g] / mx + floor) + Math.log(1 + floor);
       }
@@ -375,6 +375,13 @@
         sys.burCut = root.FOLD_KB.burial.cut;
         sys.nb = new Float64Array(n); sys.dEdn = new Float64Array(n);
       }
+      if (model === 'kb' && n > (root.FOLD_LEAN_N || LEAN_N)) {   // FOLD_LEAN_N: test hook
+        // long chains: no per-pair arrays (they grow as n²); pair terms come from residue types and strand weights when a
+        // pair enters the neighbour list (kbPairsLean)
+        const ai = sys.aIdx, sE = Float64Array.from(w, r => Math.sqrt(r.E));
+        sys.lean = { ai, sE, PR: root.FOLD_KB.pairRef, contact: p.contact, beta: p.beta, hbond: p.hbond || 0 };
+        sys.nvec = new Float64Array(3 * n); sys.mlen = new Float64Array(n); sys.gm = new Float64Array(3 * n);
+      } else {
       const I = [], J = [], EIJ = [], BIJ = [];
       for (let i = 0; i < n; i++) for (let j = i + 3; j < n; j++) {
         const e = pairE(i, j);
@@ -390,6 +397,7 @@
         // backbone hydrogen bonds, whatever the predicted secondary structure: the same directional well (4.9 Å, both
         // Cα-zigzag normals along the pair vector) rewards any pair in H-bond geometry — hairpin partners and helix turns alike
         if (p.hbond) for (let t = 0; t < I.length; t++) sys.pB[t] -= p.hbond;
+      }
       }
       sys.rg0 = 2.2 * Math.pow(n, 0.38);
       const D = model === 'kb' ? kbData() : null;
@@ -466,7 +474,141 @@
     L.len = len; L.xr.set(x.subarray ? x.subarray(0, 3 * n) : x.slice(0, 3 * n)); L.valid = true;
     return L;
   }
+  // Long chains (more than LEAN_N residues): the same terms as kbPairs, with a neighbour list built on a cell grid. A
+  // pair is listed if its Cα or side-chain sites were within cutoff + skin at the last rebuild; the grid cell is wide
+  // enough for any such pair (sites sit at most offMax from their Cα). Pair terms are computed when a pair is listed.
+  const LEAN_N = 400;
+  function leanList(sys, x, S, caCut, siteCut) {
+    const n = sys.n, Lz = sys.lean, sk = sys.nlSkin || NL_SKIN, h2 = (sk / 2) ** 2;
+    let L = sys.nl;
+    if (!L) L = sys.nl = { xr: new Float64Array(3 * n), sr: new Float64Array(3 * n), valid: false, rebuilds: 0, len: 0, cap: 0 };
+    if (L.valid && !moved(L.xr, x, n, h2) && !moved(L.sr, S, n, h2)) return L;
+    let off = 0;
+    for (let i = 0; i < n; i++) off = Math.max(off, Math.hypot(S[3 * i] - x[3 * i], S[3 * i + 1] - x[3 * i + 1], S[3 * i + 2] - x[3 * i + 2]));
+    const c1 = (caCut + sk) ** 2, c2 = (siteCut + sk) ** 2;
+    let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (let i = 0; i < n; i++) for (let d = 0; d < 3; d++) { lo[d] = Math.min(lo[d], x[3 * i + d]); hi[d] = Math.max(hi[d], x[3 * i + d]); }
+    let cell = Math.max(caCut, siteCut + 2 * off) + sk;
+    const dims = [0, 1, 2].map(d => Math.max(1, Math.ceil((hi[d] - lo[d] + 1e-6) / cell)));
+    while (dims[0] * dims[1] * dims[2] > 4 * n + 4096) { cell *= 1.25; for (let d = 0; d < 3; d++) dims[d] = Math.max(1, Math.ceil((hi[d] - lo[d] + 1e-6) / cell)); }
+    const [NX, NY, NZ] = dims, head = new Int32Array(NX * NY * NZ).fill(-1), next = new Int32Array(n), cx = new Int32Array(3 * n);
+    for (let i = n - 1; i >= 0; i--) {
+      for (let d = 0; d < 3; d++) cx[3 * i + d] = Math.min(dims[d] - 1, Math.floor((x[3 * i + d] - lo[d]) / cell));
+      const k = cx[3 * i] + NX * (cx[3 * i + 1] + NY * cx[3 * i + 2]); next[i] = head[k]; head[k] = i;
+    }
+    const I = [], J = [];
+    for (let i = 0; i < n; i++) {
+      const ax = cx[3 * i], ay = cx[3 * i + 1], az = cx[3 * i + 2];
+      for (let gz = Math.max(0, az - 1); gz <= Math.min(NZ - 1, az + 1); gz++) for (let gy = Math.max(0, ay - 1); gy <= Math.min(NY - 1, ay + 1); gy++)
+        for (let gx = Math.max(0, ax - 1); gx <= Math.min(NX - 1, ax + 1); gx++) {
+          for (let j = head[gx + NX * (gy + NY * gz)]; j >= 0; j = next[j]) {
+            if (j < i + 3) continue;
+            const dx = x[3 * j] - x[3 * i], dy = x[3 * j + 1] - x[3 * i + 1], dz = x[3 * j + 2] - x[3 * i + 2];
+            const sx = S[3 * j] - S[3 * i], sy = S[3 * j + 1] - S[3 * i + 1], sz = S[3 * j + 2] - S[3 * i + 2];
+            if (dx * dx + dy * dy + dz * dz < c1 || sx * sx + sy * sy + sz * sz < c2) { I.push(i); J.push(j); }
+          }
+        }
+    }
+    const m = I.length;
+    if (m > L.cap) { L.cap = Math.ceil(m * 1.3) + 64; L.I = new Int32Array(L.cap); L.J = new Int32Array(L.cap); L.E = new Float64Array(L.cap); L.B = new Float64Array(L.cap); L.Q = new Float64Array(L.cap); L.W = new Float64Array(L.cap); }
+    for (let k = 0; k < m; k++) {
+      const i = I[k], j = J[k];
+      L.I[k] = i; L.J[k] = j;
+      L.E[k] = Lz.contact * Lz.PR[Lz.ai[i] * 20 + Lz.ai[j]];
+      L.B[k] = 2 * (-1.0 * Lz.beta * Lz.sE[i] * Lz.sE[j]) - Lz.hbond;
+    }
+    L.len = m; L.xr.set(x.subarray ? x.subarray(0, 3 * n) : x.slice(0, 3 * n)); L.sr.set(S.subarray(0, 3 * n)); L.valid = true; L.rebuilds++;
+    return L;
+  }
+  function kbPairsLean(sys, x, f) {
+    const p = sys.params, n = sys.n, S = sys.site, FS = sys.siteF, HS = sys.hasSite, NB = sys.nb, DN = sys.dEdn;
+    const sr2 = p.repel * p.repel, r1 = p.wellIn, r2c = p.wellOut, span = r2c - r1, b0 = sys.burCut[0], b1 = sys.burCut[1], bs = b1 - b0;
+    let Er = 0, Ec = 0, Eu = 0;
+    NB.fill(0);
+    const NV = sys.nvec, ML = sys.mlen, GM = sys.gm;
+    GM.fill(0);
+    for (let i = 1; i < n - 1; i++) {
+      const a0 = x[3 * i] - x[3 * i - 3], a1 = x[3 * i + 1] - x[3 * i - 2], a2 = x[3 * i + 2] - x[3 * i - 1];
+      const c0 = x[3 * i + 3] - x[3 * i], c1 = x[3 * i + 4] - x[3 * i + 1], c2 = x[3 * i + 5] - x[3 * i + 2];
+      const m0 = a1 * c2 - a2 * c1, m1 = a2 * c0 - a0 * c2, m2 = a0 * c1 - a1 * c0, l = Math.sqrt(m0 * m0 + m1 * m1 + m2 * m2);
+      ML[i] = l > 1e-6 ? l : 0;
+      if (ML[i]) { NV[3 * i] = m0 / l; NV[3 * i + 1] = m1 / l; NV[3 * i + 2] = m2 / l; }
+    }
+    const L = leanList(sys, x, S, 6, Math.max(b1, r2c, p.siteRepel)), LI = L.I, LJ = L.J, LE = L.E, LB = L.B, PQ = L.Q, PW = L.W, LN = L.len;
+    for (let k = 0; k < LN; k++) {
+      const i = LI[k], j = LJ[k];
+      const dx = x[3 * j] - x[3 * i], dy = x[3 * j + 1] - x[3 * i + 1], dz = x[3 * j + 2] - x[3 * i + 2];
+      const r2 = dx * dx + dy * dy + dz * dz;
+      if (r2 < 36) {
+        const r = Math.sqrt(r2), s2 = sr2 / r2, s6 = s2 * s2 * s2, s12 = s6 * s6;
+        Er += s12;
+        let gx = -12 * s12 / r2 * dx, gy = -12 * s12 / r2 * dy, gz = -12 * s12 / r2 * dz;
+        const bb = LB[k], u = r - 4.9;
+        if (bb !== 0 && u > -1 && u < 1 && ML[i] && ML[j]) {
+          const rx = dx / r, ry = dy / r, rz = dz / r;
+          const nix = NV[3 * i], niy = NV[3 * i + 1], niz = NV[3 * i + 2], njx = NV[3 * j], njy = NV[3 * j + 1], njz = NV[3 * j + 2];
+          const ci = nix * rx + niy * ry + niz * rz, cj = njx * rx + njy * ry + njz * rz, Ai = ci * ci, Aj = cj * cj;
+          const w = 1 - u * u, fw = w * w, dfw = -4 * u * w;
+          Ec += bb * fw * Ai * Aj;
+          const k1 = bb * dfw * Ai * Aj, k2 = bb * fw * 2 / r;
+          gx += k1 * rx + k2 * (Aj * ci * (nix - ci * rx) + Ai * cj * (njx - cj * rx));
+          gy += k1 * ry + k2 * (Aj * ci * (niy - ci * ry) + Ai * cj * (njy - cj * ry));
+          gz += k1 * rz + k2 * (Aj * ci * (niz - ci * rz) + Ai * cj * (njz - cj * rz));
+          const qi = bb * fw * Aj * 2 * ci / ML[i], qj = bb * fw * Ai * 2 * cj / ML[j];
+          GM[3 * i] += qi * (rx - ci * nix); GM[3 * i + 1] += qi * (ry - ci * niy); GM[3 * i + 2] += qi * (rz - ci * niz);
+          GM[3 * j] += qj * (rx - cj * njx); GM[3 * j + 1] += qj * (ry - cj * njy); GM[3 * j + 2] += qj * (rz - cj * njz);
+        }
+        f[3 * j] -= gx; f[3 * j + 1] -= gy; f[3 * j + 2] -= gz;
+        f[3 * i] += gx; f[3 * i + 1] += gy; f[3 * i + 2] += gz;
+      }
+      const sx = S[3 * j] - S[3 * i], sy = S[3 * j + 1] - S[3 * i + 1], sz = S[3 * j + 2] - S[3 * i + 2];
+      const q2 = sx * sx + sy * sy + sz * sz;
+      if (q2 >= b1 * b1) { PQ[k] = -1; continue; }
+      const q = Math.sqrt(q2);
+      PQ[k] = q;
+      if (q <= b0) { NB[i] += 1; NB[j] += 1; PW[k] = 0; }
+      else { const u = (q - b0) / bs, w = 1 - u * u * (3 - 2 * u); NB[i] += w; NB[j] += w; PW[k] = -6 * u * (1 - u) / bs; }
+    }
+    const T = sys.burT, NM = sys.burN, A = sys.aIdx, wb = p.burial;
+    for (let i = 0; i < n; i++) {
+      const v = NB[i], row = A[i] * (NM + 1);
+      if (v >= NM) { Eu += wb * T[row + NM]; DN[i] = 0; continue; }
+      const kk = Math.floor(v), fr = v - kk;
+      Eu += wb * (T[row + kk] * (1 - fr) + T[row + kk + 1] * fr);
+      DN[i] = wb * (T[row + kk + 1] - T[row + kk]);
+    }
+    for (let k = 0; k < LN; k++) {
+      const q = PQ[k];
+      if (q < 0) continue;
+      const i = LI[k], j = LJ[k];
+      let dEdq = (DN[i] + DN[j]) * PW[k];
+      if (HS[i] && HS[j] && q < p.siteRepel) { const d = p.siteRepel - q; Er += p.kSite * d * d; dEdq -= 2 * p.kSite * d; }
+      const e = LE[k];
+      if (e !== 0 && q < r2c) {
+        if (q <= r1) Ec += e;
+        else { const u = (q - r1) / span; Ec += e * (1 - u * u * (3 - 2 * u)); dEdq -= 6 * e * u * (1 - u) / span; }
+      }
+      if (dEdq === 0) continue;
+      const g = -dEdq / q;
+      const sx = S[3 * j] - S[3 * i], sy = S[3 * j + 1] - S[3 * i + 1], sz = S[3 * j + 2] - S[3 * i + 2];
+      FS[3 * j] += g * sx; FS[3 * j + 1] += g * sy; FS[3 * j + 2] += g * sz;
+      FS[3 * i] -= g * sx; FS[3 * i + 1] -= g * sy; FS[3 * i + 2] -= g * sz;
+    }
+    for (let i = 1; i < n - 1; i++) {
+      const g0 = GM[3 * i], g1 = GM[3 * i + 1], g2 = GM[3 * i + 2];
+      if (g0 === 0 && g1 === 0 && g2 === 0) continue;
+      const a0 = x[3 * i] - x[3 * i - 3], a1 = x[3 * i + 1] - x[3 * i - 2], a2 = x[3 * i + 2] - x[3 * i - 1];
+      const c0 = x[3 * i + 3] - x[3 * i], c1 = x[3 * i + 4] - x[3 * i + 1], c2 = x[3 * i + 5] - x[3 * i + 2];
+      const ga0 = c1 * g2 - c2 * g1, ga1 = c2 * g0 - c0 * g2, ga2 = c0 * g1 - c1 * g0;
+      const gc0 = g1 * a2 - g2 * a1, gc1 = g2 * a0 - g0 * a2, gc2 = g0 * a1 - g1 * a0;
+      f[3 * i] -= ga0 - gc0; f[3 * i + 1] -= ga1 - gc1; f[3 * i + 2] -= ga2 - gc2;
+      f[3 * i - 3] += ga0; f[3 * i - 2] += ga1; f[3 * i - 1] += ga2;
+      f[3 * i + 3] -= gc0; f[3 * i + 4] -= gc1; f[3 * i + 5] -= gc2;
+    }
+    return { rep: Er, contact: Ec, burial: Eu };
+  }
   function kbPairs(sys, x, f) {
+    if (sys.lean) return kbPairsLean(sys, x, f);
     const p = sys.params, n = sys.n, S = sys.site, FS = sys.siteF, HS = sys.hasSite;
     const I = sys.pI, J = sys.pJ, PE = sys.pE, PB = sys.pB, PQ = sys.pq, PW = sys.pw, NB = sys.nb, DN = sys.dEdn;
     const sr2 = p.repel * p.repel, r1 = p.wellIn, r2c = p.wellOut, span = r2c - r1, b0 = sys.burCut[0], b1 = sys.burCut[1], bs = b1 - b0;
@@ -1519,7 +1661,7 @@
   }
 
   const api = {
-    DEG, BOND, HYDRO, CHARGE, SIDECHAIN, CHOU_FASMAN, LOCAL, DEFAULTS,
+    DEG, BOND, HYDRO, CHARGE, SIDECHAIN, CHOU_FASMAN, LOCAL, DEFAULTS, LEAN_N,
     mulberry32, predictSS, weightsFromLabels, kbData, buildLocalModel, buildChain, randomCoil, center,
     dist, angleAt, dihedral, radiusOfGyration, wrap,
     createSystem, computeForces, comp, Simulation, assembleFragments, restraintStage, scheduleT, Hopper, RunMonitor, earlyStopSteps,

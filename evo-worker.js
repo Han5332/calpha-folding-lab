@@ -48,11 +48,21 @@ onmessage = async e => {
       } });
       return;
     }
+    if (!model) model = Evo.loadModel(self.FOLD_EVO_MODEL);
+    if (m.query.length > Evo.FULL_MAX) {
+      // too long for one coevolution matrix: coevolution + network window by window, a banded prediction, no global DCA
+      say('win', 0);
+      const p = Evo.predictLong(model, m.query, rows, f => say('win', f));
+      postMessage({ type: 'done', id: m.id, result: {
+        format, dropped, input: rows.length, N: msa.N, L: msa.L, X: msa.X, neff: p.neff, band: p.band, windows: p.windows,
+        dca: null, mi: null, conservation: p.conservation, ss: p.ss, dist: p.dist, ms: { filter: t1 - t0, dca: 0, net: performance.now() - t1 },
+      } });
+      return;
+    }
     say('dca', 0);
     const feat = Evo.features(msa, f => say('dca', f));
     const t2 = performance.now();
     say('net', 0);
-    if (!model) model = Evo.loadModel(self.FOLD_EVO_MODEL);
     const pred = Evo.predict(model, feat, f => say('net', f));
     const t3 = performance.now();
     postMessage({ type: 'done', id: m.id, result: {

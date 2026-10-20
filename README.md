@@ -1,8 +1,13 @@
 # Cα Folding Lab
 
-A protein-folding lab that runs entirely in the browser. It folds proteins of 8–300 residues as a chain of Cα beads
+A protein-folding lab that runs entirely in the browser. It folds proteins of 8–5,000 residues as a chain of Cα beads
 with Langevin dynamics and simulated annealing, then compares the result with the experimental structure from the
 Protein Data Bank (RMSD, TM-score, GDT-TS, native contacts, secondary structure).
+
+Long chains: above 300 residues the MSA network runs on half-overlapping windows of 128 residues (coevolution and
+network per window, so pairs more than 127 apart get no restraint; about 20 s per window with a deep alignment). Above
+400 residues the engine builds its pair list on a cell grid instead of keeping per-pair arrays, so only the
+knowledge-based and MSA + AI methods are offered; above 1,000 the fragment search runs in a worker.
 
 ## Methods
 

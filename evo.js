@@ -429,17 +429,58 @@
     return { ss, dist, L };
   }
 
+  // ---------- long chains: overlapping windows ----------
+  // Above FULL_MAX residues one full coevolution matrix ((20L)² entries) and one full L×L network pass no longer fit
+  // in a browser. Instead the chain is cut into windows of WIN residues, half overlapping; each window gets its own
+  // alignment filtering, coevolution and network pass (the network was trained on windows of this size), and the
+  // predictions are averaged into a band |i − j| < WIN, weighted toward each window's centre. Pairs farther apart than
+  // the band get no prediction, so no restraint.
+  const FULL_MAX = 300, WIN = 128;
+  function predictLong(model, query, rows, onProgress) {
+    const L = query.length, W = WIN, step = W >> 1, starts = [];
+    for (let s = 0; ; s += step) { if (s + W >= L) { starts.push(Math.max(0, L - W)); break; } starts.push(s); }
+    const dist = new Float32Array(L * W * NB), wsum = new Float32Array(L * W), ss = new Float32Array(L * 3), ssw = new Float32Array(L);
+    const cons = new Float32Array(L), consw = new Float32Array(L), tri = new Float32Array(W);
+    for (let i = 0; i < W; i++) tri[i] = 1 - Math.abs(i + 0.5 - W / 2) / (W / 2) + 0.05;
+    let neff = 0, N = 0;
+    starts.forEach((s0, w) => {
+      const q = query.slice(s0, s0 + W), msa = process(q, rows.map(r => r.slice(s0, s0 + W)));
+      const feat = features(msa), pr = predict(model, feat), n = msa.L;
+      neff += feat.neff / starts.length; N = Math.max(N, msa.N);
+      for (let a = 0; a < n; a++) {
+        const i = s0 + a, wa = tri[a];
+        for (let c = 0; c < 3; c++) ss[3 * i + c] += wa * pr.ss[3 * a + c];
+        ssw[i] += wa; cons[i] += wa * feat.conservation[a]; consw[i] += wa;
+        for (let b = a; b < n; b++) {
+          const wab = wa * tri[b], o = (i * W + (b - a)), src = (a * n + b) * NB;
+          wsum[o] += wab;
+          for (let k = 0; k < NB; k++) dist[o * NB + k] += wab * pr.dist[src + k];
+        }
+      }
+      if (onProgress) onProgress((w + 1) / starts.length);
+    });
+    for (let o = 0; o < L * W; o++) if (wsum[o] > 0) { const f = 1 / wsum[o]; for (let k = 0; k < NB; k++) dist[o * NB + k] *= f; }
+    for (let i = 0; i < L; i++) { for (let c = 0; c < 3; c++) ss[3 * i + c] /= ssw[i]; cons[i] /= consw[i]; }
+    return { L, band: W, ss, dist, neff, N, conservation: cons, windows: starts.length };
+  }
+  // Offset of pair (i, j), i < j, in pred.dist (−1 when a banded prediction does not cover it).
+  function pairOffset(pred, i, j) {
+    if (!pred.band) return (i * pred.L + j) * NB;
+    return j - i < pred.band ? (i * pred.band + (j - i)) * NB : -1;
+  }
+
   // ---------- derived quantities ----------
-  // P(dCα < cut) from the distogram (cut on a bin edge: 8 → bins <4 … [7,8)).
+  // P(dCα < cut) from the distogram (cut on a bin edge: 8 → bins <4 … [7,8)). Same layout as pred.dist: L×L, or L×band
+  // (index i·band + j − i) for a banded prediction.
   function contactMap(pred, cut) {
-    const L = pred.L, nb = BIN_LO.findIndex(lo => lo >= (cut || 8)), out = new Float32Array(L * L);
-    for (let k = 0; k < L * L; k++) { let s = 0; for (let b = 0; b < nb; b++) s += pred.dist[k * NB + b]; out[k] = s; }
+    const M = pred.L * (pred.band || pred.L), nb = BIN_LO.findIndex(lo => lo >= (cut || 8)), out = new Float32Array(M);
+    for (let k = 0; k < M; k++) { let s = 0; for (let b = 0; b < nb; b++) s += pred.dist[k * NB + b]; out[k] = s; }
     return out;
   }
   // Expected distance (bins capped at 21 Å), for display.
   function expectedDistance(pred) {
-    const L = pred.L, out = new Float32Array(L * L), mid = BIN_LO.map((lo, b) => (b === 0 ? 3.6 : b === NB - 1 ? 21 : lo + 0.5));
-    for (let k = 0; k < L * L; k++) { let s = 0; for (let b = 0; b < NB; b++) s += pred.dist[k * NB + b] * mid[b]; out[k] = s; }
+    const M = pred.L * (pred.band || pred.L), out = new Float32Array(M), mid = BIN_LO.map((lo, b) => (b === 0 ? 3.6 : b === NB - 1 ? 21 : lo + 0.5));
+    for (let k = 0; k < M; k++) { let s = 0; for (let b = 0; b < NB; b++) s += pred.dist[k * NB + b] * mid[b]; out[k] = s; }
     return out;
   }
   // Labels from the network's helix/strand/coil probabilities; with `blend` (an array of {H, E, C}, e.g. the fragment
@@ -466,8 +507,9 @@
     const R = opts.reference || (root.FOLD_EVO_MODEL && root.FOLD_EVO_MODEL.reference), useBg = opts.ref === 'background' && R;
     const g = useBg ? R.groups.filter(x => L >= x).length : 0;
     const I = [], J = [], V = [], conf = [];
-    for (let i = 0; i < L; i++) for (let j = i + minSep; j < L; j++) {
-      const k = (i * L + j) * NB;
+    const jMax = i => (pred.band ? Math.min(L, i + pred.band) : L);
+    for (let i = 0; i < L; i++) for (let j = i + minSep; j < jMax(i); j++) {
+      const k = pairOffset(pred, i, j);
       let p20 = 0;
       for (let b = 0; b < 17; b++) p20 += pred.dist[k + b];
       if (p20 < minP) continue;
@@ -484,9 +526,9 @@
     return { I: Int32Array.from(I), J: Int32Array.from(J), V: Float32Array.from(V), conf: Float32Array.from(conf), grid0: 3.5, gridN: 17 };
   }
   // Precision of the top-k predicted pairs against a native Cα structure (flat xyz), within a separation range.
-  function precision(prob, L, X, lo, hi, k, cut) {
+  function precision(prob, L, X, lo, hi, k, cut, band) {   // band: prob is L×band (pairs beyond it are not candidates)
     const cand = [];
-    for (let i = 0; i < L; i++) for (let j = i + lo; j < Math.min(L, i + hi); j++) cand.push([prob[i * L + j], i, j]);
+    for (let i = 0; i < L; i++) for (let j = i + lo; j < Math.min(L, i + hi, band ? i + band : L); j++) cand.push([prob[band ? i * band + j - i : i * L + j], i, j]);
     cand.sort((a, b) => b[0] - a[0]);
     const top = cand.slice(0, k);
     if (!top.length) return null;
@@ -544,6 +586,6 @@
     return { L, neff: entry.neff, ss: unpackF16(raw.ss), dist, dca, mi, conservation: unpackF16(raw.cons) };
   }
 
-  root.Evo = { ALPH, NB, BIN_LO, MAX_SEQS, parseAlignment, alignToQuery, process, weights, features, loadModel, predict,
+  root.Evo = { ALPH, NB, BIN_LO, MAX_SEQS, FULL_MAX, WIN, parseAlignment, alignToQuery, process, weights, features, loadModel, predict, predictLong, pairOffset,
     contactMap, expectedDistance, ssLabels, restraints, precision, spdInverse, fingerprint, unpackF16, fromStored };
 })(typeof self !== 'undefined' ? self : this);

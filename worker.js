@@ -60,7 +60,9 @@ function loop() {
 
 onmessage = e => {
   const m = e.data;
-  if (m.type === 'start') {
+  if (m.type === 'local') {   // the fragment search for a long chain, off the page's main thread
+    postMessage({ type: 'local', lm: Fold.buildLocalModel(m.seq, { ss: m.ss }) });
+  } else if (m.type === 'start') {
     job = m.job;
     sim = new Fold.Simulation(makeSystem(job), { seed: job.seed, dt: 0.01, gamma: 0.5 });
     hopper = job.hopSteps ? new Fold.Hopper(sim, { steps: job.steps, every: job.every, frags: job.frags, seed: job.seed, patienceSteps: job.hopSteps, severity: job.hopSeverity }) : null;
