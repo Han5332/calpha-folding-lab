@@ -39,16 +39,16 @@ button { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--select); outline-offset: 2px; }
 
 /* ---- top bar ---- */
-.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 30; height: var(--bar); background: var(--panel); border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 12px; }
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 30; height: var(--bar); background: color-mix(in srgb, var(--panel) 88%, transparent);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 20px; }
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font-size: 15px; white-space: nowrap; }
 .mark { width: 28px; height: 28px; border-radius: 7px; background: var(--ink); color: var(--panel); display: grid; place-items: center; font-weight: 700; font-size: 12px; flex: none; }
-.file { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; }
-.file .path { color: var(--muted); white-space: nowrap; }
-.file b { white-space: nowrap; }
-.badge { font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 5px; background: var(--select-soft); color: var(--select); }
 .spacer { flex: 1; }
-.avatars { display: flex; }
-.av { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #fff; border: 2px solid var(--panel); margin-left: -7px; }
-.btn { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 14px; border-radius: 7px; border: 0; font: 700 13px var(--font); text-decoration: none; white-space: nowrap; cursor: pointer; background: var(--select); color: var(--select-ink); }
+.links { display: flex; gap: 22px; font-size: 13.5px; }
+.links a { text-decoration: none; color: var(--ink-2); }
+.links a:hover { color: var(--ink); }
+.btn { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 15px; border-radius: 8px; border: 0; font: 700 13.5px var(--font); text-decoration: none; white-space: nowrap; cursor: pointer; background: var(--select); color: var(--select-ink); }
+.btn.quiet { background: var(--panel); color: var(--ink); box-shadow: var(--shadow); }
 
 /* ---- the folding stage ---- */
 .story { position: relative; height: 660vh; }
@@ -97,7 +97,7 @@ button { font: inherit; color: inherit; }
 .kv { display: flex; gap: 12px; font-size: 11px; color: var(--muted); margin: 6px 0 4px; }
 .kv i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; vertical-align: 0; }
 
-.tools { left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; align-items: center; gap: 2px; padding: 5px; }
+.tools { left: 50%; bottom: 14px; translate: -50% 0; display: flex; align-items: center; gap: 2px; padding: 5px; }
 .tool { width: 38px; height: 38px; border-radius: 8px; border: 0; background: transparent; display: grid; place-items: center; cursor: pointer; color: var(--ink); }
 .tool:hover { background: var(--field); }
 .tool[aria-pressed="true"] { background: var(--select); color: var(--select-ink); }
@@ -109,6 +109,21 @@ button { font: inherit; color: inherit; }
 
 .cap { left: 50%; top: 14px; transform: translateX(-50%); width: min(440px, calc(100% - 24px)); padding: 10px 14px; font-size: 13px; color: var(--ink-2); display: none; }
 .cap b { color: var(--ink); display: block; margin-bottom: 2px; }
+
+/* landing: headline centred over the faded protein, a scroll cue at the bottom; both fade as the fold starts */
+.hero { position: absolute; inset: 0 0 64px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 14px; padding-inline: 20px; z-index: 4; pointer-events: none; }
+.hero > * { pointer-events: auto; }
+.tag { font-size: 12.5px; font-weight: 700; color: var(--select); background: var(--select-soft); padding: 5px 11px; border-radius: 99px; }
+h1 { font-size: clamp(44px, 7.4vw, 108px); line-height: .92; letter-spacing: -0.05em; margin: 4px 0 0; font-weight: 700; text-wrap: balance;
+  text-shadow: 0 0 2px var(--canvas), 0 0 18px var(--canvas), 0 0 36px var(--canvas); }
+.lede { font-size: clamp(15px, 1.6vw, 18px); color: var(--ink-2); max-width: 44ch; margin: 0; text-shadow: 0 0 2px var(--canvas), 0 0 14px var(--canvas); }
+.cta-row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 8px; }
+.btn.big { height: 46px; padding: 0 22px; font-size: 15px; border-radius: 10px; }
+.cue { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 2px; z-index: 4;
+  font-size: 12.5px; font-weight: 700; color: var(--ink-2); text-decoration: none; }
+.cue svg { animation: bob 1.4s ease-in-out infinite; }
+@keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(6px); } }
+@media (prefers-reduced-motion: reduce) { .cue svg { animation: none; } }
 
 /* ---- sections below ---- */
 section.band { padding-block: 80px; }
@@ -149,7 +164,7 @@ footer { padding-block: 24px 44px; font-size: 12.5px; color: var(--muted); }
   .panel.right .fld { flex-direction: column; gap: 0; }
   .panel.right .fld b { margin-left: 0; }
   .readout, .tools span.sep:nth-of-type(2) { display: none; }
-  .file .path, .avatars { display: none; }
+  .links { display: none; }
   .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .cta { grid-template-columns: minmax(0, 1fr); padding: 28px; }
 }
@@ -160,18 +175,26 @@ footer { padding-block: 24px 44px; font-size: 12.5px; color: var(--muted); }
 
 
 <header class="bar gut">
-  <div class="mark" aria-hidden="true">Cα</div>
-  <div class="file"><span class="path">Cα Folding Lab /</span><b>Ubiquitin</b><span class="badge">v8</span></div>
+  <a class="brand" href="#top" aria-label="Back to the top"><span class="mark" aria-hidden="true">Cα</span><b>Folding Lab</b></a>
   <div class="spacer"></div>
-  <div class="avatars" aria-label="Residues being followed: Lys48, Ile44, Gly76">
-    <span class="av" style="background:var(--c3)" title="Lys48">K</span><span class="av" style="background:var(--c5);color:#0c2219" title="Ile44">I</span><span class="av" style="background:var(--c1)" title="Gly76">G</span>
-  </div>
+  <nav class="links" aria-label="Sections"><a href="#how">How it works</a><a href="#results">Results</a></nav>
   <a class="btn" href="https://claude.ai/artifact/RyVANvfC8waqLfb8ck74TY" target="_blank" rel="noopener">Open the lab</a>
 </header>
 
-<div class="story" id="story">
+<div class="story" id="story"><span id="top"></span>
   <div class="stick" id="stick">
     <canvas id="cv" aria-label="Ubiquitin, a chain of 76 residues colored from first to last, folding as the page scrolls"></canvas>
+
+    <div class="hero" id="hero">
+      <span class="tag">Ubiquitin · 76 amino acids · v8 network</span>
+      <h1>Watch a protein<br>fold itself.</h1>
+      <p class="lede">Every frame is a real simulation step, from a stretched-out chain to the shape found in nature.</p>
+      <div class="cta-row">
+        <button class="btn big" id="b-fold" type="button"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.2v9.6l8-4.8z" fill="currentColor"/></svg>Fold it</button>
+        <a class="btn big quiet" href="#how">How it works</a>
+      </div>
+    </div>
+    <a class="cue" id="cue" href="#how" aria-label="Scroll down to fold the protein"><span>Scroll to fold</span><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M4 7l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
 
     <aside class="float panel left fade" id="left" aria-label="Folding stages">
       <div class="tabs"><span class="on">Layers</span><span>Assets</span></div>
@@ -212,7 +235,7 @@ footer { padding-block: 24px 44px; font-size: 12.5px; color: var(--muted); }
 
     <div class="float cap fade" id="cap"></div>
 
-    <div class="float tools" role="toolbar" aria-label="Playback">
+    <div class="float tools fade" id="tools" role="toolbar" aria-label="Playback">
       <button class="tool play" id="b-play" type="button" aria-label="Fold it" title="Fold it"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path id="i-play" d="M5 3.2v9.6l8-4.8z" fill="currentColor"/></svg></button>
       <button class="tool" id="b-back" type="button" aria-label="Back to the unfolded chain" title="Back to the unfolded chain"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 3v10M13 3.5 6.5 8l6.5 4.5z" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
       <span class="sep"></span>
@@ -224,7 +247,7 @@ footer { padding-block: 24px 44px; font-size: 12.5px; color: var(--muted); }
   </div>
 </div>
 
-<section class="band gut">
+<section class="band gut" id="how">
   <div class="wrap">
     <p class="kick">How it works</p>
     <h2>How the fold is found</h2>
@@ -233,7 +256,7 @@ footer { padding-block: 24px 44px; font-size: 12.5px; color: var(--muted); }
   </div>
 </section>
 
-<section class="band gut" style="padding-top:0">
+<section class="band gut" id="results" style="padding-top:0">
   <div class="wrap">
     <p class="kick">Benchmark</p>
     <h2>Ten proteins, three seeds each</h2>
@@ -330,7 +353,7 @@ const DATA = {"n":76,"seq":"MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLED
   }
   const CURSORS = [{ i: 47, name: 'Lys48', c: '--c3' }, { i: 43, name: 'Ile44', c: '--c5', ink: '#0c2219' }, { i: 75, name: 'Gly76', c: '--c1' }];
   const cur = CURSORS.map(() => ({ x: 0, y: 0, ok: false }));
-  let zoom = 0, prog = 0, shown = -1, spinOn = !reduce, ghostOn = false, angle = 0.6, last = performance.now(), cxS = null, panel = 0;
+  let zoom = 0, prog = 0, shown = -1, spinOn = !reduce, ghostOn = false, angle = 0.6, last = performance.now(), panel = 0, hero = 1;
 
   function project(P, ang, tilt, scale, cx, cy) {
     const ca = Math.cos(ang), sa = Math.sin(ang), ct = Math.cos(tilt), st = Math.sin(tilt), out = new Array(n), camD = 140;
@@ -373,23 +396,33 @@ const DATA = {"n":76,"seq":"MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLED
     panel += (pt - panel) * 0.18; if (Math.abs(pt - panel) > 0.002) need = true;
     for (const [el, dx] of [[$('left'), -18], [$('right'), 18]]) { el.style.opacity = panel.toFixed(3); el.style.transform = `translateX(${(dx * (1 - panel)).toFixed(1)}px)`; el.classList.toggle('live', panel > 0.5); }
     const cap = $('cap'); cap.style.opacity = panel.toFixed(3); cap.classList.toggle('live', panel > 0.5);
+    const tools = $('tools'); tools.style.opacity = panel.toFixed(3); tools.classList.toggle('live', panel > 0.5);
+    // landing: the headline sits over a faded protein; it fades out in the first few percent of the scroll
+    const hv = 1 - ease(clamp(prog / 0.03, 0, 1));
+    hero += (hv - hero) * 0.25; if (Math.abs(hv - hero) > 0.002) need = true;
+    $('hero').style.opacity = hero.toFixed(3); $('hero').style.visibility = hero < 0.02 ? 'hidden' : 'visible';
+    $('cue').style.opacity = hero.toFixed(3); $('cue').style.visibility = hero < 0.02 ? 'hidden' : 'visible';
     const lv = getComputedStyle($('left')).display !== 'none', narrow = W < 760;
+    // keep the chain clear of whatever floats over the canvas: measured, so it holds at any size
     const insL = lv ? 268 * panel : 0, insR = narrow ? 0 : 288 * panel;
-    const insB = narrow ? 150 * panel : 0, insT = !lv ? 70 * panel : 0;
-    const freeW = W - insL - insR, freeH = H - 64 - insB - insT;
-    const cx = insL + freeW / 2, cy = insT + (H - 64 - insB - insT) / 2 + 6;
+    const insB = narrow ? ($('right').offsetHeight + 6) * panel : 0, insT = !lv ? ($('cap').offsetHeight + 22) * panel : 0;
+    const insBar = 64 * (1 - hero);   // room for the toolbar once it is shown
+    const freeW = W - insL - insR, freeH = H - insBar - insB - insT;
+    const cx = insL + freeW / 2, cy = insT + freeH / 2;
     // zoom follows the chain's size, so the collapse reads as motion but nothing leaves the canvas
     let ext = 0; for (let i = 0; i < n; i++) ext = Math.max(ext, Math.hypot(P[3 * i], P[3 * i + 1], P[3 * i + 2]));
-    const target = Math.min(freeW, freeH) * 0.42 / Math.max(15, ext * 0.85);
+    const target = Math.min(freeW, freeH) * (0.42 + 0.08 * hero) / Math.max(15, ext * 0.85);
     zoom = zoom ? zoom + (target - zoom) * 0.12 : target;
     if (spinOn) { angle += dt / 9000; need = true; }
     const ang = angle + prog * Math.PI * 1.6, tilt = 0.32;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
     const wb = clamp(zoom * 1.55, 7, 19);
     const showNative = ghostOn || prog > ST[3].to;
+    ctx.globalAlpha = 0.32 + 0.68 * (1 - hero);
     if (showNative) drawChain(project(native, ang, tilt, zoom, cx, cy), wb, true);
     const pts = project(P, ang, tilt, zoom, cx, cy);
     drawChain(pts, wb, false);
+    ctx.globalAlpha = 1 - hero;
     // the selected layer: blue box, white handles, frame name above, size pill below
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const p of pts) { x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y); }
@@ -410,6 +443,7 @@ const DATA = {"n":76,"seq":"MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLED
       ctx.font = FONT; const lw = ctx.measureText(c.name).width + 12; ctx.fillStyle = col; rr(x + 10, y + 15, lw, 19, 9.5); ctx.fill();
       ctx.fillStyle = c.ink || '#fff'; ctx.fillText(c.name, x + 16, y + 25);
     });
+    ctx.globalAlpha = 1;
     if (k !== shown) {
       shown = k;
       $('p-step').textContent = st[0].toLocaleString('en-US');
@@ -454,21 +488,26 @@ const DATA = {"n":76,"seq":"MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLED
     $('b-play').setAttribute('aria-label', on ? 'Pause' : 'Fold it'); $('b-play').title = on ? 'Pause' : 'Fold it';
   }
   // plays the whole run in about 15 seconds by scrolling the page, so the scroll position and the picture stay in step
+  let want = null;   // where playback last put the page; any other movement means the visitor took over
   function playStep() {
     if (!playing) return;
-    window.scrollTo({ top: Math.min(endY(), scrollY + Math.max(2, span() / 900)), behavior: 'instant' });
-    if (scrollY >= endY() - 1) { setPlay(false); return; }
+    if (want != null && Math.abs(scrollY - want) > 30) { setPlay(false); return; }
+    want = Math.min(endY(), scrollY + Math.max(2, span() / 900));
+    window.scrollTo({ top: want, behavior: 'instant' });
+    if (want >= endY() - 1) { setPlay(false); return; }
     requestAnimationFrame(playStep);
   }
   $('b-play').addEventListener('click', () => {
     if (playing) { setPlay(false); return; }
     if (prog >= 0.999) window.scrollTo({ top: Math.max(0, startY()), behavior: 'instant' });
-    setPlay(true); requestAnimationFrame(playStep);
+    want = null; setPlay(true); requestAnimationFrame(playStep);
   });
+  $('b-fold').addEventListener('click', () => { if (!playing) $('b-play').click(); });
+  $('cue').addEventListener('click', e => { e.preventDefault(); window.scrollTo({ top: startY() + span() * 0.1, behavior: reduce ? 'instant' : 'smooth' }); });
   $('b-back').addEventListener('click', () => { setPlay(false); window.scrollTo({ top: Math.max(0, startY()), behavior: reduce ? 'instant' : 'smooth' }); });
   $('b-spin').addEventListener('click', e => { spinOn = !spinOn; e.currentTarget.setAttribute('aria-pressed', String(spinOn)); need = true; });
   $('b-ghost').addEventListener('click', e => { ghostOn = !ghostOn; e.currentTarget.setAttribute('aria-pressed', String(ghostOn)); need = true; });
-  for (const ev of ['wheel', 'touchstart', 'keydown']) addEventListener(ev, e => { if (playing && !(ev === 'keydown' && e.target.closest && e.target.closest('.tools'))) setPlay(false); }, { passive: true });
+  for (const ev of ['touchstart', 'keydown']) addEventListener(ev, e => { if (playing && !(e.target.closest && e.target.closest('.tools, .hero'))) setPlay(false); }, { passive: true });
 
   function loop(now) { if (need) { need = false; render(now); } else last = now; requestAnimationFrame(loop); }
   addEventListener('scroll', onScroll, { passive: true });
