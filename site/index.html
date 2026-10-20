@@ -27,6 +27,7 @@
   --line: #3d3d3d; --select: #0d99ff; --select-ink: #ffffff; --native: #5c5c5c; --coil: #4a4a4a; color-scheme: dark;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { scroll-behavior: smooth; }
 body { margin: 0; background: var(--canvas); color: var(--ink); font: 15px/1.5 var(--font); -webkit-font-smoothing: antialiased; }
 a { color: inherit; }
@@ -45,17 +46,18 @@ a { color: inherit; }
 .btn.ghost { border-color: var(--line); background: var(--panel); color: var(--ink); }
 .btn:focus-visible, a:focus-visible { outline: 2px solid var(--select); outline-offset: 2px; }
 
-/* hero */
-.hero { padding-block: 56px 28px; max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 32px; align-items: end; }
+/* intro: the headline sits on the canvas and fades once the run starts */
+.intro { position: absolute; left: 28px; top: 48px; max-width: min(440px, 38%); pointer-events: none; z-index: 2; transition: opacity .2s linear; }
 .tag { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
 .tag i { width: 10px; height: 10px; border-radius: 3px; background: var(--c3); display: inline-block; }
-h1 { font-size: clamp(44px, 8vw, 104px); line-height: .92; letter-spacing: -0.045em; margin: 14px 0 0; font-weight: 700; text-wrap: balance; }
+h1 { font-size: clamp(32px, 4.2vw, 62px); line-height: .94; letter-spacing: -0.045em; margin: 12px 0 14px; font-weight: 700; text-wrap: balance; }
 h1 .sw { display: inline-block; padding: 0 .12em; border-radius: .16em; color: #fff; }
-.lede { font-size: 18px; color: var(--ink-2); max-width: 46ch; margin: 0; }
+.lede { font-size: 16px; color: var(--ink-2); max-width: 40ch; margin: 0; }
 .lede b { color: var(--ink); }
-.hint { display: inline-flex; align-items: center; gap: 10px; margin-top: 18px; font-size: 13px; color: var(--muted); }
-.hint .wheel { width: 18px; height: 28px; border: 2px solid var(--muted); border-radius: 10px; position: relative; }
-.hint .wheel::after { content: ""; position: absolute; left: 50%; top: 5px; width: 3px; height: 6px; margin-left: -1.5px; border-radius: 2px; background: var(--muted); animation: wheel 1.6s infinite; }
+.hint { position: absolute; left: 50%; bottom: 58px; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 700; color: var(--ink-2);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 99px; padding: 7px 14px 7px 10px; white-space: nowrap; transition: opacity .2s linear; z-index: 2; }
+.hint .wheel { width: 16px; height: 25px; border: 2px solid var(--muted); border-radius: 9px; position: relative; }
+.hint .wheel::after { content: ""; position: absolute; left: 50%; top: 4px; width: 3px; height: 6px; margin-left: -1.5px; border-radius: 2px; background: var(--muted); animation: wheel 1.6s infinite; }
 @keyframes wheel { 0% { transform: translateY(0); opacity: 1; } 80% { transform: translateY(8px); opacity: 0; } 100% { opacity: 0; } }
 
 /* scroll stage */
@@ -133,7 +135,9 @@ footer { padding-block: 28px 44px; font-size: 13px; color: var(--muted); }
   .mcap { display: block !important; }
 }
 @media (max-width: 760px) {
-  .hero { grid-template-columns: minmax(0, 1fr); padding-block: 36px 20px; }
+  .intro { left: 14px; right: 14px; top: 40px; max-width: none; }
+  .intro .lede { font-size: 14px; }
+  .hint { bottom: 54px; }
   .stick { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
   .panel.right { border-left-width: 0; border-top-width: 1px; padding: 10px 14px; max-height: 38vh; }
   .panel.right .full { display: none; }
@@ -159,17 +163,6 @@ footer { padding-block: 28px 44px; font-size: 13px; color: var(--muted); }
   <a class="btn primary" href="https://claude.ai/artifact/RyVANvfC8waqLfb8ck74TY" target="_blank" rel="noopener">Open the lab</a>
 </header>
 
-<div class="hero gut">
-  <div>
-    <span class="tag"><i></i>Protein folding, in your browser</span>
-    <h1>Scroll to <span class="sw" style="background:var(--c1)">fold</span> a <span class="sw" style="background:var(--c3)">protein</span>.</h1>
-  </div>
-  <div>
-    <p class="lede">This is <b>ubiquitin</b>, 76 amino acids long, folding from a stretched-out chain into its real shape. Every frame comes from one run of the lab's <b>v8 network</b> and physics model. Nothing here was drawn by hand.</p>
-    <div class="hint"><span class="wheel" aria-hidden="true"></span>Scroll down to run the simulation</div>
-  </div>
-</div>
-
 <div class="story" id="story">
   <div class="stick">
     <aside class="panel left" aria-label="Folding stages">
@@ -180,6 +173,12 @@ footer { padding-block: 28px 44px; font-size: 13px; color: var(--muted); }
     <div class="view dots" id="view">
       <canvas id="cv" aria-label="Ubiquitin folding, drawn as a chain of 76 residues colored from start to end"></canvas>
       <div class="frame-name"><b>1UBQ</b> · ubiquitin · Cα trace</div>
+      <div class="intro" id="intro">
+        <span class="tag"><i></i>Protein folding, in your browser</span>
+        <h1>Scroll to <span class="sw" style="background:var(--c1)">fold</span> a <span class="sw" style="background:var(--c3)">protein</span>.</h1>
+        <p class="lede">This is <b>ubiquitin</b>, 76 amino acids, stretched out at the start. Every frame below comes from one real run of the lab's <b>v8 network</b> and physics model.</p>
+      </div>
+      <div class="hint" id="hint"><span class="wheel" aria-hidden="true"></span>Scroll to run the simulation</div>
       <div class="mcap" id="mcap"></div>
       <div class="legend"><span><span class="grad"></span>residue 1 → 76</span><span id="lg-native" hidden><span class="ghost"></span>real structure (PDB)</span></div>
     </div>
@@ -310,11 +309,12 @@ const DATA = {"n":76,"seq":"MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLED
   }
   const CURSORS = [{ i: 47, name: 'Lys48', c: '--c3' }, { i: 43, name: 'Ile44', c: '--c5', ink: '#0c2219' }, { i: 75, name: 'Gly76', c: '--c1' }];
   const cur = CURSORS.map(() => ({ x: 0, y: 0, ok: false }));
-  let zoom = 0, prog = 0, shown = -1, need = true, t0 = performance.now(), spin = 0;
+  let zoom = 0, prog = 0, shown = -1, need = true, t0 = performance.now(), spin = 0, intro = 1;
 
   function project(P, ang, tilt, scale) {
     const ca = Math.cos(ang), sa = Math.sin(ang), ct = Math.cos(tilt), st = Math.sin(tilt), out = [];
-    const cx = W / 2, cy = H / 2 + (W < 760 ? 0 : 10), camD = 140;
+    // while the headline is up, the chain sits beside it (desktop) or below it (phone), then glides to the centre
+    const cx = W / 2 + (W >= 760 ? W * 0.2 * intro : 0), cy = H / 2 + (W < 760 ? H * 0.16 * intro : 10), camD = 140;
     for (let i = 0; i < n; i++) {
       const x = P[3 * i], y = P[3 * i + 1], z = P[3 * i + 2];
       const x1 = x * ca + z * sa, z1 = -x * sa + z * ca, y1 = y * ct - z1 * st, z2 = y * st + z1 * ct;
@@ -348,14 +348,19 @@ const DATA = {"n":76,"seq":"MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLED
 
   function render(now) {
     const fr = prog * (NF - 1), k = Math.round(fr), st = F[Math.min(NF - 1, k)], P = coords(fr);
+    const ia = Math.max(0, Math.min(1, 1 - prog / 0.05));
+    intro = intro + (ia - intro) * 0.2;
+    if (Math.abs(ia - intro) > 0.002) need = true;
+    $('intro').style.opacity = ia.toFixed(3); $('hint').style.opacity = Math.max(0, 1 - prog / 0.02).toFixed(3);
+    $('mcap').style.opacity = (1 - ia).toFixed(3);
     // zoom follows the chain's size so the collapse stays visible but never leaves the frame
     let ext = 0; for (let i = 0; i < n; i++) ext = Math.max(ext, Math.hypot(P[3 * i], P[3 * i + 1], P[3 * i + 2]));
-    const target = Math.min(W, H) * 0.42 / Math.max(16, ext * 0.9);
+    const target = Math.min(W * (W >= 760 ? 0.78 : 1), H) * 0.5 / Math.max(15, ext * 0.85);
     zoom = zoom ? zoom + (target - zoom) * 0.12 : target;
     spin = reduce ? 0 : (now - t0) / 9000;
     const ang = 0.6 + prog * Math.PI * 1.6 + spin, tilt = 0.32;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
-    const wBase = Math.max(5, Math.min(13, zoom * 1.05));
+    const wBase = Math.max(7, Math.min(18, zoom * 1.5));
     const showNative = prog > ST[3].to;
     if (showNative) drawChain(project(native, ang, tilt, zoom), wBase, true);
     const pts = project(P, ang, tilt, zoom);
