@@ -862,6 +862,57 @@
     return tHi * Math.pow(tLo / tHi, Math.min(1, step / (0.85 * steps)));
   }
 
+  // ---------- blind run control: early stopping and replica culling ----------
+  // Neither rule looks at the PDB structure. At each check the caller passes the active replicas as
+  // { id, x (current structure), E (current energy), dih (its dihedral energy), best (lowest energy so far) }.
+  // The reference replica is the one with the lowest E + 3·dihedral, the score the final model selection uses.
+  //  - culling (from 40% to 70% of the run): a replica closer to the reference's mirror image than to the reference,
+  //    or one whose dihedral energy is far above it, is returned in `cull`; the caller restarts it from the reference.
+  //  - early stop (from 40%): at least half of the never-restarted replicas (3 or more) lie within 2.5 + 0.015·n Å of
+  //    the reference, and the lowest energy has dropped by less than 0.3% over the last 10% of the run.
+  function RunMonitor(opts) {
+    this.o = Object.assign({ from: 0.4, cullTo: 0.7, agree: 0.5, minAgree: 3, tol: 0.003, window: 0.1, dihW: 3, dihK: 2, dihAdd: 15 }, opts);
+    this.cut = 2.5 + 0.015 * this.o.n;
+    this.hist = []; this.restarted = new Set(); this.stopped = null; this.culls = [];
+  }
+  RunMonitor.prototype.check = function (frac, reps) {
+    const o = this.o, out = { ref: -1, cull: [], stop: false, agree: 0, among: 0 };
+    if (!reps.length) return out;
+    const bestE = Math.min(...reps.map(q => q.best));
+    this.hist.push({ frac, E: bestE });
+    let ref = 0;
+    reps.forEach((q, k) => { if (q.E + o.dihW * q.dih < reps[ref].E + o.dihW * reps[ref].dih) ref = k; });
+    out.ref = ref;
+    if (frac < o.from) return out;
+    const R = reps[ref], mir = mirror(R.x);
+    if (o.cull && frac <= o.cullTo) {
+      reps.forEach((q, k) => {
+        if (k === ref) return;
+        const toRef = rmsd(q.x, R.x), toMir = rmsd(q.x, mir);
+        const why = toMir < 0.8 * toRef && toMir < this.cut ? 'mirror'
+          : q.dih > o.dihK * R.dih + o.dihAdd && q.E > R.E ? 'strained' : null;
+        if (!why) return;
+        out.cull.push({ k, id: q.id, why });
+        this.restarted.add(q.id);
+        this.culls.push({ id: q.id, frac, why });
+      });
+    }
+    if (o.stop && !this.stopped) {
+      const own = reps.filter((q, k) => k === ref || !this.restarted.has(q.id));
+      out.agree = own.filter(q => q === R || rmsd(q.x, R.x) < this.cut).length; out.among = own.length;
+      let past = null;
+      for (let k = this.hist.length - 1; k >= 0; k--) if (this.hist[k].frac <= frac - o.window) { past = this.hist[k]; break; }
+      const stalled = !!past && past.E - bestE < o.tol * Math.abs(bestE);
+      if (stalled && out.agree >= Math.max(o.minAgree, o.agree * own.length)) { out.stop = true; this.stopped = { frac }; }
+    }
+    return out;
+  };
+  // New run length after an early stop at `step`: cool to the final temperature over `quench`·(original length), then
+  // keep the usual last 15% for sampling the final model.
+  function earlyStopSteps(step, steps0, every, quench) {
+    return Math.ceil((step + (quench || 0.1) * steps0) / 0.85 / every) * every;
+  }
+
   // ---------- dynamics ----------
   function Simulation(sys, opts) {
     opts = opts || {};
@@ -1471,7 +1522,7 @@
     DEG, BOND, HYDRO, CHARGE, SIDECHAIN, CHOU_FASMAN, LOCAL, DEFAULTS,
     mulberry32, predictSS, weightsFromLabels, kbData, buildLocalModel, buildChain, randomCoil, center,
     dist, angleAt, dihedral, radiusOfGyration, wrap,
-    createSystem, computeForces, comp, Simulation, assembleFragments, restraintStage, scheduleT, Hopper,
+    createSystem, computeForces, comp, Simulation, assembleFragments, restraintStage, scheduleT, Hopper, RunMonitor, earlyStopSteps,
     superpose, transform, deviations, rmsd, mirror, structureScores,
     contacts, fractionNative, contactOverlap, assignSS, q3, compare,
     reconstructBackbone, atomTopology, atomPositions, nativeAtomModel, consensus,

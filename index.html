@@ -161,8 +161,8 @@ details.adv[open] summary::after { content: "–"; }
 .check input { accent-color: var(--accent); }
 textarea { width: 100%; min-height: 64px; resize: vertical; padding: 8px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--panel); font-family: var(--font-mono); font-size: 12px; word-break: break-all; }
 .label { font-size: 12.5px; color: var(--ink-2); }
-#hop-field, #stopfold-field { display: flex; flex-direction: column; gap: 2px; }
-#stopfold-field.off { opacity: 0.45; }
+#hop-field, #stopfold-field, #blind-field { display: flex; flex-direction: column; gap: 2px; }
+#stopfold-field.off, #blind-field.off { opacity: 0.45; }
 .hint-line { font-size: 11px; color: var(--muted); padding-left: 22px; }
 .slider.off { opacity: 0.45; }
 
@@ -366,6 +366,12 @@ td.wrap { white-space: normal; color: var(--ink-2); font-size: 12.5px; min-width
           <span class="hint" id="hop-sev-hint"></span>
         </div>
       </div>
+      <div id="blind-field">
+        <label class="check"><input type="checkbox" id="earlystop"> Stop early when replicas agree</label>
+        <span class="hint-line">From 40% of the run, once most replicas sit in the same fold as the best one and the energy has levelled off, cool down quickly and finish. Blind: it never looks at the PDB structure. MSA + AI only.</span>
+        <label class="check"><input type="checkbox" id="cullstray"> Restart stray replicas</label>
+        <span class="hint-line">Between 40% and 70% of the run, a replica stuck in the mirror image of the best fold, or in a strained one, restarts from the best replica. Blind, MSA + AI only.</span>
+      </div>
       <div id="stopfold-field">
         <label class="check"><input type="checkbox" id="stopfold"> Stop at same fold</label>
         <span class="hint-line">Ends the run as soon as any replica matches the PDB fold (TM-score ≥ 0.5 or close RMSD). Uses the answer, so it isn't blind.</span>
@@ -523,11 +529,11 @@ td.wrap { white-space: normal; color: var(--ink-2); font-size: 12.5px; min-width
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="natives.js?v8" charset="utf-8"></script>
 <script src="kb.js" charset="utf-8"></script>
-<script src="engine.js?v8" charset="utf-8"></script>
+<script src="engine.js?v9" charset="utf-8"></script>
 <script src="evo.js?v8d" charset="utf-8"></script>
 <script src="evo-msa.js?v8" charset="utf-8"></script>
 <script src="evo-model.js?v8" charset="utf-8"></script>
 <script src="evo-examples.js" charset="utf-8"></script>
 <script src="viewer3d.js" charset="utf-8"></script>
 <script src="benchmark.js?v8" charset="utf-8"></script>
-<script src="app.js?v8d" charset="utf-8"></script>
+<script src="app.js?v9" charset="utf-8"></script>

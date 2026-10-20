@@ -17,7 +17,11 @@ Protein Data Bank (RMSD, TM-score, GDT-TS, native contacts, secondary structure)
 Twelve replicas run in parallel Web Workers by default, with optional Monte Carlo restarts when a replica stalls.
 Pair interactions use Verlet neighbour lists, which give results identical to the full pair loop and are 2–4× faster on
 proteins above ~150 residues. The final model is the lowest-energy large cluster of late frames, scored with an extra
-backbone-dihedral term so that register-shifted β-sheets do not win.
+backbone-dihedral term so that register-shifted β-sheets do not win. Two blind checks (they never look at the PDB structure) save time
+on MSA + AI runs: from 40% of the schedule, replicas stuck in the mirror image of the best fold restart from the best
+replica, and once most replicas agree and the energy has levelled off the run cools down quickly and finishes. On the
+benchmark this uses about 60% of the planned steps for proteins with restraints, at the same accuracy (within 0.16 Å).
+Both are toggles in the Method panel.
 
 ## Benchmark (v8)
 

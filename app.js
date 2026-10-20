@@ -84,7 +84,7 @@
     params: JSON.parse(JSON.stringify(DEF_PARAMS)),
     stepsIdx: autoStepsIdx(BUILTIN[1].seq.length), tHi: METHODS.evo.tHi, tLo: METHODS.evo.tLo, seed: 11, replicas: 12, watch: false,
     run: null, focus: 0, scrub: null, frame: 'live', tab: 'traj',
-    hopOn: true, hopSeverity: 3, stopAtFold: false, view: { rep: 'cartoon', color: 'rainbow', layout: 'overlay', showModel: true, showPdb: true, spin: false },
+    hopOn: true, hopSeverity: 3, stopAtFold: false, earlyStop: true, cullStray: true, view: { rep: 'cartoon', color: 'rainbow', layout: 'overlay', showModel: true, showPdb: true, spin: false },
     history: loadHistory(), queue: [], replaying: false,
   };
 
@@ -198,6 +198,11 @@
       seed: state.seed, R: state.replicas, ssWeights: inp.ssWeights, local: inp.local, pred: inp.pred, restraints: inp.restraints || null, needsEvo: !!inp.needsEvo, frags: inp.frags || null, stopAtFold, stopHit: null, hopSteps: m === 'go' || !state.hopOn ? 0 : HOP_PATIENCE, hopSeverity: state.hopSeverity, get hop() { return this.hopSteps > 0 || this.hopUsed; }, hopUsed: false,
       status: 'ready', late: [], final: null, runner: null, startedAt: 0, elapsed: 0,
     };
+    // blind run control (Fold.RunMonitor): only for runs steered by network restraints, like the dihedral-aware selection
+    if (m === 'evo' && run.restraints && (state.earlyStop || state.cullStray)) {
+      run.monitor = new F.RunMonitor({ n: t.seq.length, stop: state.earlyStop, cull: state.cullStray });
+      run.steps0 = steps; run.nextCheck = 0; run.restarts = []; run.early = null;
+    }
     run.reps = [];
     for (let r = 0; r < run.R; r++) {
       const seed = run.seed + 7919 * r;
@@ -230,7 +235,7 @@
   // ---------- runners ----------
   function WorkerRunner(run, onMsg) {
     this.workers = run.reps.map(rep => {
-      const w = new Worker('worker.js?v8');
+      const w = new Worker('worker.js?v9');
       w.onmessage = e => onMsg(rep.r, e.data);
       w.onerror = e => { e.preventDefault(); onMsg(rep.r, { type: 'error', message: e.message || 'worker failed' }); };
       return w;
@@ -242,6 +247,7 @@
   WorkerRunner.prototype.resume = function () { this.workers.forEach(w => w.postMessage({ type: 'resume' })); };
   WorkerRunner.prototype.update = function (job, rebuild) { this.workers.forEach(w => w.postMessage({ type: 'update', job, rebuild })); };
   WorkerRunner.prototype.stop = function () { this.workers.forEach(w => w.terminate()); };
+  WorkerRunner.prototype.reseed = function (r, x, seed) { this.workers[r].postMessage({ type: 'reseed', x: Array.from(x), seed }); };
 
   // Main-thread fallback when workers are unavailable: replicas take turns inside the animation loop.
   function LocalRunner(run, onMsg) {
@@ -257,6 +263,11 @@
   LocalRunner.prototype.pause = function () { this.active = false; };
   LocalRunner.prototype.resume = function () { this.active = true; };
   LocalRunner.prototype.stop = function () { this.active = false; };
+  LocalRunner.prototype.reseed = function (r, x, seed) {
+    const old = this.sims[r], sim = new F.Simulation(old.sys, { seed, x: Float64Array.from(x), dt: 0.01, gamma: 0.5 });
+    sim.step = old.step; this.sims[r] = sim;
+    if (this.hoppers[r]) this.hoppers[r] = new F.Hopper(sim, { steps: this.run.steps, every: this.run.every, frags: this.run.frags, seed, patienceSteps: this.run.hopSteps, severity: this.run.hopSeverity });
+  };
   LocalRunner.prototype.update = function (job, rebuild) {
     const run = this.run;
     if (job.prevSteps && job.steps !== job.prevSteps) {
@@ -359,12 +370,51 @@
     run.reps.forEach(q => { q.done = true; });
     setTimeout(() => finishRun(run), 0);
   }
+  // Blind early stopping and replica culling. Every 8 samples (once the slowest replica gets there) the replicas' latest
+  // saved frames go to Fold.RunMonitor: stray replicas (mirror image or strained fold) restart from the reference replica,
+  // and once most replicas agree with it and the energy has levelled off, the run is shortened to a quick cool-down.
+  function monitorRun(run) {
+    const act = run.reps.filter(q => !q.done && q.frames.length > 1);
+    if (act.length < run.reps.filter(q => !q.done).length) return;
+    const lo = Math.min(...act.map(q => q.step));
+    if (lo < run.nextCheck) return;
+    const gap = 8 * run.every;
+    run.nextCheck = (Math.floor(lo / gap) + 1) * gap;
+    const buf = new Float64Array(3 * run.target.seq.length);
+    const view = act.map(q => {
+      const x = Float64Array.from(q.frames[q.frames.length - 1]);
+      F.computeForces(run.sys, x, buf);
+      return { id: q.r, x, E: q.trace[q.trace.length - 1].E, dih: F.comp.dihedral, best: q.best ? q.best.E : Infinity };
+    });
+    const hi = Math.max(...act.map(q => q.step)), frac = hi / run.steps0;
+    const res = run.monitor.check(frac, view);
+    if (res.ref < 0) return;
+    const refX = view[res.ref].x;
+    res.cull.forEach(c => {
+      const q = act[c.k], seed = (q.seed ^ (0x9e3779b9 + q.step)) >>> 0;
+      if (run.runner && run.runner.reseed) run.runner.reseed(q.r, refX, seed);
+      run.restarts.push({ r: q.r, from: act[res.ref].r, step: q.step, why: c.why });
+      q.restarts = (q.restarts || 0) + 1;
+    });
+    if (res.stop && !run.early) {
+      const steps = F.earlyStopSteps(hi, run.steps, run.every, 0.1);
+      if (steps < run.steps) {
+        const prevSteps = run.steps;
+        run.steps = steps;
+        run.early = { frac, at: hi, steps, prevSteps, agree: res.agree, among: res.among };
+        if (run.runner) run.runner.update({ steps, prevSteps }, false);
+        renderControls();
+      }
+    }
+    if (res.cull.length) { dirty.charts = true; renderReplicas(); }
+  }
   function handleMsg(run, r, m) {
     if (run !== state.run) return;
     const rep = run.reps[r];
     if (m.type === 'sample') {
       if (m.step === 0 && rep.trace.length) { rep.trace[0].E = m.E; return; }
       pushSample(run, rep, m, false);
+      if (run.monitor && run.status === 'running') monitorRun(run);
       if (r === state.focus && state.scrub == null) dirty.viewer = true;
       dirty.charts = true;
     } else if (m.type === 'live') {
@@ -1009,7 +1059,7 @@
         <div class="metric"><dt>Mirror-image RMSD</dt><dd>${f1(m.mirrorRmsd)} Å</dd><span class="why">${m.mirrorRmsd < m.rmsd ? 'Lower than the RMSD: the model is closer to the mirror image of the real fold.' : 'Higher than the RMSD, so the handedness is right.'}</span></div>
         ${d.kind === 'nearnative' ? `<div class="metric"><dt>Near-native frame</dt><dd>replica ${run.final.nearNative.r + 1}, ${fmtSteps(run.final.nearNative.step)}</dd><span class="why">The run passed through this near-native structure, so it is shown at the end. It was picked by comparing with the PDB structure; ${run.method === 'go' ? 'the' : 'the blind prediction is the'} consensus model (${f1(run.final.consensus.metrics.rmsd)} Å), in the menu above.</span></div>` : ''}
         ${run.closest ? `<div class="metric"><dt>Lowest RMSD reached</dt><dd>${f1(run.closest.rmsd)} Å <button class="btn small" id="closest-view" type="button">View</button></dd><span class="why">The closest any replica came to the PDB structure: replica ${run.closest.r + 1} at step ${fmtSteps(run.closest.step)}. Picking it needs the answer, so it is a best case, not the prediction.</span></div>` : ''}
-        ${clusterRow}${energyRow}
+        ${clusterRow}${blindRow(run, c, d)}${energyRow}
       </dl>${note}<p class="fine">TM-score above 0.5 (the tick) usually means the same fold${n < 22 ? '; it is harsh below about 20 residues' : ''}.</p>`;
     bindFramePick();
     const cv = $('closest-view');
@@ -1058,6 +1108,20 @@
       <td class="num">${r.gdt == null ? '–' : r.gdt.toFixed(2)}</td><td class="num">${r.q == null ? '–' : pct(r.q)}</td><td><span class="tag" data-tone="${r.tone}">${ICON[r.tone] || ''}${esc(r.verdict)}</span></td></tr>`).join('')
       : '<tr class="empty"><td colspan="12">Finished runs appear here, newest first. Compare methods, settings and proteins; “Run all ten” fills it in one go.</td></tr>';
     $('history').innerHTML = head + '<tbody>' + body + '</tbody>';
+  }
+
+  // what the blind run control did, for the scorecard
+  function blindRow(run, c, d) {
+    if (!c || d.kind !== 'consensus' || (!run.early && !(run.restarts && run.restarts.length))) return '';
+    const bits = [];
+    if (run.early) bits.push(`stopped at ${Math.round(100 * run.early.frac)}% of the planned run, ${fmtSteps(run.early.steps)} of ${fmtSteps(run.early.prevSteps)} steps`);
+    if (run.restarts && run.restarts.length) {
+      const mir = run.restarts.filter(q => q.why === 'mirror').length, k = run.restarts.length;
+      bits.push(`${k} stray replica restart${k > 1 ? 's' : ''}${mir ? ` (${mir} mirror image${mir > 1 ? 's' : ''})` : ''}`);
+    }
+    const why = (run.early ? `${run.early.agree} of ${run.early.among} replicas that were never restarted sat within ${(2.5 + 0.015 * run.target.seq.length).toFixed(1)} Å of the reference replica and the lowest energy had levelled off, so the run cooled down quickly and finished. ` : '')
+      + 'Neither check uses the PDB structure.';
+    return `<div class="metric"><dt>${run.early ? 'Finished early' : 'Replicas restarted'}</dt><dd>${run.early ? Math.round(100 * (1 - run.early.steps / run.early.prevSteps)) + '% fewer steps' : run.restarts.length}</dd><span class="why">${bits.join('; ').replace(/^./, ch => ch.toUpperCase())}. ${why}</span></div>`;
   }
 
   // ---------- benchmark (measured offline on this build; see the Method tab) ----------
@@ -1428,6 +1492,7 @@
       <p><b>Version 4 to 6.</b> Version 6 is the same network trained on 2,651 chains. On 162 new chains neither version saw, long-range contact precision rose from 59% to 62% and secondary-structure accuracy from 81% to 83%. This time the folds followed: over two random seeds, villin went from 7.2 to 2.4 Å, protein G from 5.3 to 3.8 Å and ubiquitin from 3.5 to 3.2 Å, with the homeodomain level at 2.7 Å (mean of the four 4.7 → 3.0 Å, TM-score 0.50 → 0.58). Chignolin and Trp-cage have no real alignment, so the fallback skips the network for them and they are unchanged.</p>
       <p><b>Versions 7 and 8.</b> Version 7 widened the network to 64 and 48 channels (583k parameters) and trained it on about 5,500 chains; on 287 chains neither saw, long-range contact precision rose from 61% to 63%. Version 8 fine-tuned v7 for 8 more epochs after adding 781 chains of 12–49 and 251–396 residues, and after removing every training chain related to four new test proteins (WW domain, CheY, T4 lysozyme, adenylate kinase). On unseen small chains its distance loss fell from 2.31 to 2.06, and on unseen large chains long-range precision rose from 69% to 71%. Over three seeds × 12 replicas the four new proteins fold to 3.8, 2.8, 4.2 and 4.1 Å (TM-score 0.56–0.77), and on 8 of the 10 proteins the three seeds land within 0.4 Å of each other.</p>
       <p><b>Choosing the final model.</b> On protein G, v7 sometimes found the native fold in half the replicas but picked a β-register shift (strands paired 2–4 residues off) that fits the predicted distances very slightly better. The cluster score now adds three times the backbone dihedral energy when restraints are on, and the lab runs 12 replicas by default. On two fresh seeds the protein G result went from 6.1 and 5.4 Å to 3.2 and 3.1 Å, with no protein made worse.</p>
+      <p><b>Stopping early and restarting stray replicas.</b> Logged runs showed that by 40% of the schedule the replica with the lowest energy + 3 × dihedral energy is usually as close to the PDB structure as it will get (ubiquitin 2.7 Å at 40% and at 85%, CheY 2.9 and 2.9 Å), while 4–9 of the 12 replicas often sit in the mirror image of its fold. Two blind checks now run every 8 samples. Between 40% and 70% of the run, a replica closer to that reference's mirror image than to the reference, or with a dihedral energy far above it, restarts from the reference with a new random seed. From 40%, once at least half of the never-restarted replicas lie within 2.5 + 0.015·n Å of the reference and the lowest energy has dropped by less than 0.3% over the last 10% of the run, the schedule is shortened to a cool-down over 10% of the original length plus the usual final 15% for sampling. Over the ten proteins × 3 seeds × 12 replicas, runs used 68% of the planned steps (59–63% for most proteins with restraints), and no protein's mean RMSD moved by more than 0.16 Å: homeodomain 3.19 → 3.05, protein G 2.89 → 2.73, WW domain 3.77 → 3.86, T4 lysozyme 4.21 → 4.28 Å. Chignolin and Trp-cage fold without restraints, so neither check runs for them.</p>
       <p><b>Restraints.</b> Each pair likely to lie within 20 Å gets a smooth potential from its histogram, −ln[p(d) / p(19.5 Å)] + 1.57 ln(d / 19.5 Å), the form trRosetta uses. They are switched on by sequence separation (pairs up to 12 apart, then up to 24, then all) so that helices and turns form, with the handedness the fragments prefer, before the long-range pulls arrive; distances alone cannot tell a fold from its mirror image. Fragments are picked to match the network's secondary structure. Everything else is the v2 force field below.</p>
       <p><b>Choices made on the benchmark.</b> Two settings were picked by comparing them on these six proteins, so v3 is not entirely blind: the trRosetta reference against a background reference built from training-set distances (mean 4.9 vs 5.1 Å), and, after a control run with near-perfect restraints showed replicas folding into the mirror image, choosing the lowest-energy large cluster rather than the largest. Averaging the network's secondary structure with the fragment vote was also tried and dropped.</p>
       <p><b>Limits.</b> The two designed peptides (chignolin, Trp-cage) have no natural homologs, so the network sees one sequence and adds little. Coevolution resolves contacts well once Neff is roughly the chain length or more.</p>
@@ -1603,6 +1668,8 @@
     else if (run.status === 'paused') { st.dataset.state = 'paused'; $('status-text').textContent = `Paused at ${Math.round(frac * 100)}%`; }
     else { st.dataset.state = 'done'; const m = run.final.consensus.metrics; const nn = run.final.nearNative; $('status-text').textContent = nn ? `Done: near-native frame found, ${nn.metrics.rmsd.toFixed(1)} Å` : m ? `${run.stopHit ? 'Stopped at same fold' : 'Done'}: ${m.rmsd.toFixed(1)} Å from PDB ${t.id}` : 'Done'; }
     $('stopfold').checked = state.stopAtFold; $('stopfold').disabled = !t.X;
+    $('earlystop').checked = state.earlyStop; $('cullstray').checked = state.cullStray;
+    $('blind-field').classList.toggle('off', state.method !== 'evo');
     $('stopfold-field').classList.toggle('off', !t.X);
     $('replicas').value = state.replicas; $('replicas-out').textContent = state.replicas;
     syncSteps();
@@ -1640,6 +1707,9 @@
     $('replicas').addEventListener('change', () => { state.queue = []; newRun(); startRun(); });
     $('seed').addEventListener('change', e => { state.seed = clamp(Math.round(+e.target.value) || 1, 1, 999999); e.target.value = state.seed; newRun(); startRun(); });
     $('reroll').addEventListener('click', () => { state.seed = 1 + Math.floor(Math.random() * 999998); $('seed').value = state.seed; newRun(); startRun(); });
+    // the blind controls take effect from the next run (a run keeps the monitor it started with)
+    $('earlystop').addEventListener('change', e => { state.earlyStop = e.target.checked; });
+    $('cullstray').addEventListener('change', e => { state.cullStray = e.target.checked; });
     $('stopfold').addEventListener('change', e => {
       state.stopAtFold = e.target.checked;
       const run = state.run;

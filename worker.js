@@ -71,6 +71,13 @@ onmessage = e => {
     running = false;
   } else if (m.type === 'resume') {
     if (!running && sim && sim.step < job.steps) { running = true; loop(); }
+  } else if (m.type === 'reseed') {
+    // "Restart stray replicas": carry on from another replica's structure with a fresh random stream, same step count
+    if (!sim) return;
+    const step = sim.step;
+    sim = new Fold.Simulation(sim.sys, { seed: m.seed, x: Float64Array.from(m.x), dt: 0.01, gamma: 0.5 });
+    sim.step = step;
+    if (hopper) hopper = new Fold.Hopper(sim, { steps: job.steps, every: job.every, frags: job.frags, seed: m.seed, patienceSteps: job.hopSteps, severity: job.hopSeverity });
   } else if (m.type === 'update') {
     // lengthening the run: keep the temperature continuous from here (see Fold.scheduleT)
     if (m.job.steps && sim && m.job.steps !== job.steps) job.anchor = { step: sim.step, T: temperature(sim.step) };
