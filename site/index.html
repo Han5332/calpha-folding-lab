@@ -103,7 +103,7 @@ button { font: inherit; color: inherit; }
 .tools { left: 50%; bottom: 14px; translate: -50% 0; display: flex; align-items: center; gap: 2px; padding: 4px; }
 .tool { width: var(--h-ctl); height: var(--h-ctl); border-radius: var(--r-ctl); border: 0; background: transparent; display: grid; place-items: center; cursor: pointer; color: var(--ink); }
 .tool:hover { background: var(--field); }
-.tool[aria-pressed="true"] { background: var(--select); color: var(--select-ink); }
+.tool[aria-pressed="true"] { background: var(--select-soft); color: var(--select); }
 .tool.play { background: var(--select); color: var(--select-ink); }
 .tool.play:hover { filter: brightness(1.06); }
 .sep { width: 1px; height: 22px; background: var(--line); margin: 0 5px; }
@@ -133,11 +133,11 @@ h1 { font-size: clamp(44px, 7.4vw, 108px); line-height: .92; letter-spacing: -0.
 @media (prefers-reduced-motion: reduce) { .cue svg { animation: none; } }
 
 /* ---- sections below ---- */
-section.band { padding-block: 80px; }
+section.band { padding-block: 56px; }
 .wrap { max-width: 1120px; margin: 0 auto; }
 .kick { display: inline-block; font-size: 11px; font-weight: 700; color: var(--select); background: var(--select-soft); padding: 3px 8px; border-radius: var(--r-ctl); margin: 0 0 12px; }
 h2 { font-size: clamp(30px, 4.2vw, 50px); line-height: 1; letter-spacing: -0.035em; margin: 0 0 14px; text-wrap: balance; }
-.sub { color: var(--ink-2); max-width: 58ch; margin: 0 0 30px; font-size: 16px; }
+.sub { color: var(--ink-2); max-width: 58ch; margin: 0 0 24px; font-size: 15px; }
 .flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; }
 .fr { min-width: 0; }
 .fr .fl { font-size: 12px; color: var(--muted); margin: 0 0 6px 2px; }
@@ -165,18 +165,33 @@ footer { padding-block: 24px 44px; font-size: 12.5px; color: var(--muted); }
 
 @media (max-width: 1080px) { .panel.left { display: none; } .cap { display: flex; } }
 @media (max-width: 760px) {
-  .panel.right { top: auto; bottom: 66px; left: 12px; right: 12px; width: auto; padding: 6px; overflow: visible; display: flex; gap: 6px; border-radius: 10px; }
+  .panel.right { top: auto; bottom: 56px; left: 10px; right: 10px; width: auto; padding: 6px 6px 4px; overflow: visible; display: flex; gap: 6px;
+    border-radius: var(--r-panel) var(--r-panel) 0 0; box-shadow: none; border: 1px solid var(--line); border-bottom: 0; }
+  .tools { left: 10px; right: 10px; bottom: 10px; translate: none; justify-content: space-around; border-radius: 0 0 var(--r-panel) var(--r-panel); box-shadow: none; border: 1px solid var(--line); border-top: 1px solid var(--line); height: 46px; }
   .panel.right .tabs, .panel.right .only-wide, .panel.right .sh { display: none; }
   .panel.right .sec { padding: 0; border: 0; flex: 1 1 0; min-width: 0; }
   .panel.right .fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-  .panel.right .fld { flex-direction: column; gap: 0; padding: 4px 7px; font-size: 11px; }
+  .panel.right .fld { flex-direction: column; align-items: flex-start; gap: 1px; padding: 5px 8px; height: auto; font-size: 11px; line-height: 1.2; }
   .panel.right .fld b { margin-left: 0; font-size: 12.5px; }
   .cap { white-space: normal; height: auto; padding: 7px 12px; }
-  .readout, .tools span.sep:nth-of-type(2) { display: none; }
+  .readout, .tools .sep { display: none; }
   .navtabs { display: none; }
   .bar { grid-template-columns: minmax(0, 1fr) auto; }
   .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .cta { grid-template-columns: minmax(0, 1fr); padding: 28px; }
+}
+@media (max-width: 460px) {
+  section.band { padding-block: 36px; }
+  h2 { font-size: 28px; }
+  .sub { font-size: 14px; margin-bottom: 18px; }
+  .flow { gap: 12px; }
+  .fr .fl { display: none; }
+  .fr .fb { grid-template-columns: auto minmax(0, 1fr); column-gap: 12px; row-gap: 2px; padding: 14px; height: auto; }
+  .fr .fb .chip { grid-column: 1 / -1; margin-bottom: 4px; }
+  .fr .fb .big { font-size: 26px; grid-row: span 2; align-self: center; }
+  .fr .fb h3 { font-size: 14px; align-self: end; }
+  .fr .fb p { font-size: 13px; }
+  .cta { padding: 22px; }
 }
 @media (max-width: 460px) { .flow { grid-template-columns: minmax(0, 1fr); } .brow { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 84px; min-width: 0; gap: 10px; padding: 9px 14px; } .brow .size { display: none; } }
 </style>
@@ -410,7 +425,7 @@ const DATA = {"n":76,"seq":"MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLED
   const CURSORS = [{ i: 47, name: 'Lys48', c: '--c3' }, { i: 43, name: 'Ile44', c: '--c5', ink: '#0c2219' }, { i: 75, name: 'Gly76', c: '--c1' }];
   const cur = CURSORS.map(() => ({ x: 0, y: 0, ok: false }));
   const INTRO = 0.07;   // share of the scroll spent on the landing and headline before the simulation starts
-  let zoom = 0, prog = 0, shown = -1, spinOn = !reduce, ghostOn = true, angle = 0.6, last = performance.now(), panel = 0, hero = 1;
+  let panX = 0, panY = 0, zoom = 0, prog = 0, shown = -1, spinOn = !reduce, ghostOn = true, angle = 0.6, last = performance.now(), panel = 0, hero = 1;
 
   function projectN(P, ang, tilt, scale, cx, cy) {
     const m = P.length / 3, ca = Math.cos(ang), sa = Math.sin(ang), ct = Math.cos(tilt), st = Math.sin(tilt), out = new Array(m), camD = 140;
@@ -439,23 +454,32 @@ const DATA = {"n":76,"seq":"MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLED
   }
   function shade(rgb, k) { return `rgb(${rgb.map(v => Math.round(v * k)).join(',')})`; }
   function drawChain(pts, wb, ghost, alpha) {
-    const m = pts.length, segs = [];
-    for (let j = 0; j < m - 1; j++) segs.push([j, (pts[j].z + pts[j + 1].z) / 2]);
-    segs.sort((a, b) => b[1] - a[1]);
+    const m = pts.length;
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    if (ghost) {
+      // the reference structure: one continuous translucent stroke, so overlaps do not stack
+      ctx.strokeStyle = `rgba(${NAT.join(',')},${alpha.toFixed(3)})`; ctx.lineWidth = wb;
+      ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y); for (let j = 1; j < m; j++) ctx.lineTo(pts[j].x, pts[j].y); ctx.stroke();
+      return;
+    }
+    // the chain: runs of two residues, each a continuous stroke, painted back to front so crossings occlude
+    const RUN = 2 * SUB, runs = [];
     let zmin = Infinity, zmax = -Infinity;
     for (const p of pts) { zmin = Math.min(zmin, p.z); zmax = Math.max(zmax, p.z); }
-    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    for (const [j, z] of segs) {
-      const a = pts[j], b = pts[j + 1], d = zmax > zmin ? (z - zmin) / (zmax - zmin) : 0, w = wb * (a.p + b.p) / 2;
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
-      if (ghost) { ctx.strokeStyle = `rgba(${NAT.join(',')},${(alpha * (1 - 0.45 * d)).toFixed(3)})`; ctx.lineWidth = w; ctx.stroke(); continue; }
-      const u = (j + 0.5) / (m - 1), q = u * (PAL.length - 1), k = Math.min(PAL.length - 2, Math.floor(q)), f = q - k;
-      const base = [0, 1, 2].map(c => PAL[k][c] + (PAL[k + 1][c] - PAL[k][c]) * f);
-      const lit = 1.06 - 0.42 * d;                      // nearer is brighter, farther sinks into the canvas
-      ctx.strokeStyle = shade(base, lit * 0.62); ctx.lineWidth = w; ctx.stroke();          // rim
-      ctx.strokeStyle = shade(base, lit); ctx.lineWidth = w * 0.72; ctx.stroke();          // body
-      ctx.strokeStyle = `rgba(255,255,255,${(0.18 * (1 - d)).toFixed(3)})`; ctx.lineWidth = w * 0.22;
-      ctx.beginPath(); ctx.moveTo(a.x - w * 0.12, a.y - w * 0.14); ctx.lineTo(b.x - w * 0.12, b.y - w * 0.14); ctx.stroke();
+    for (let j0 = 0; j0 < m - 1; j0 += RUN) {
+      const j1 = Math.min(m - 1, j0 + RUN); let z = 0;
+      for (let j = j0; j <= j1; j++) z += pts[j].z;
+      runs.push([j0, j1, z / (j1 - j0 + 1)]);
+    }
+    runs.sort((a, b) => b[2] - a[2]);
+    for (const [j0, j1, z] of runs) {
+      const d = zmax > zmin ? (z - zmin) / (zmax - zmin) : 0, mid = (j0 + j1) / 2;
+      const w = wb * pts[Math.round(mid)].p, u = mid / (m - 1), q = u * (PAL.length - 1), k = Math.min(PAL.length - 2, Math.floor(q)), f = q - k;
+      const base = [0, 1, 2].map(c => PAL[k][c] + (PAL[k + 1][c] - PAL[k][c]) * f), lit = 1.06 - 0.42 * d;   // nearer is brighter
+      const path = (dx, dy) => { ctx.beginPath(); ctx.moveTo(pts[j0].x + dx, pts[j0].y + dy); for (let j = j0 + 1; j <= j1; j++) ctx.lineTo(pts[j].x + dx, pts[j].y + dy); };
+      path(0, 0); ctx.strokeStyle = shade(base, lit * 0.64); ctx.lineWidth = w; ctx.stroke();            // rim
+      ctx.strokeStyle = shade(base, lit); ctx.lineWidth = w * 0.7; ctx.stroke();                          // body
+      path(-w * 0.12, -w * 0.14); ctx.strokeStyle = `rgba(255,255,255,${(0.16 * (1 - d)).toFixed(3)})`; ctx.lineWidth = w * 0.2; ctx.stroke();   // sheen
     }
   }
   function rr(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
@@ -484,11 +508,9 @@ const DATA = {"n":76,"seq":"MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLED
     const insB = narrow ? ($('right').offsetHeight + 6) * panel : 0, insT = !lv ? ($('cap').offsetHeight + 40) * panel : 0;
     const insBar = 64 * panel;   // room for the toolbar once it is shown
     const freeW = W - insL - insR, freeH = H - insBar - insB - insT;
-    const cx = insL + freeW / 2, cy = insT + freeH / 2;
+    const cx = insL + freeW / 2 - panX, cy = insT + freeH / 2 - panY;
     // zoom follows the chain's size, so the collapse reads as motion but nothing leaves the canvas
-    let ext = 0; for (let i = 0; i < n; i++) ext = Math.max(ext, Math.hypot(P[3 * i], P[3 * i + 1], P[3 * i + 2]));
-    const target = Math.min(freeW, freeH) * (0.42 + 0.08 * (1 - panel)) / Math.max(15, ext * 0.85);
-    zoom = zoom ? zoom + (target - zoom) * 0.12 : target;
+    if (!zoom) { let ext = 0; for (let i = 0; i < n; i++) ext = Math.max(ext, Math.hypot(P[3 * i], P[3 * i + 1], P[3 * i + 2])); zoom = Math.min(freeW, freeH) * 0.45 / Math.max(15, ext); }
     if (spinOn) { angle += dt / 9000; need = true; }
     const ang = angle + prog * Math.PI * 1.7, tilt = 0.32;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
@@ -498,6 +520,13 @@ const DATA = {"n":76,"seq":"MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLED
     if (showNative) drawChain(projectN(spline(native), ang, tilt, zoom, cx, cy), wb * 0.62, true, 0.22 + 0.33 * clamp((fp - ST[3].to) / 0.1, 0, 1));
     const pts = projectN(spline(P), ang, tilt, zoom, cx, cy);
     drawChain(pts, wb, false);
+    // next frame's zoom: the drawn outline fills the free canvas (with room for labels), eased so turning does not pulse
+    { let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+      for (const q of pts) { bx0 = Math.min(bx0, q.x); by0 = Math.min(by0, q.y); bx1 = Math.max(bx1, q.x); by1 = Math.max(by1, q.y); }
+      const fit = zoom * Math.min(0.84 * freeW / Math.max(1, bx1 - bx0 + 2 * wb), 0.78 * freeH / Math.max(1, by1 - by0 + 2 * wb + 40));
+      const zt = clamp(fit, 1, 40); if (Math.abs(zt - zoom) / zoom > 0.004) need = true; zoom += (zt - zoom) * 0.08;
+      const ox = (bx0 + bx1) / 2 - (cx + panX), oy = (by0 + by1) / 2 - (cy + panY);   // outline centre minus the free area's centre
+      if (Math.abs(ox) > 0.5 || Math.abs(oy) > 0.5) need = true; panX += ox * 0.08; panY += oy * 0.08; }
     const res = i => pts[i * SUB];
     ctx.globalAlpha = panel;
     // the selected layer: blue box, white handles, frame name above, size pill below
