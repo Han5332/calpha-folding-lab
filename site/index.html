@@ -192,9 +192,9 @@ footer { padding-block: 24px 44px; font-size: 12.5px; color: var(--muted); }
   <div class="stick" id="stick">
     <canvas id="cv" aria-label="Ubiquitin, a chain of 76 residues colored from first to last, folding as the page scrolls"></canvas>
 
-    <div class="hero" id="hero" aria-hidden="true">
+    <div class="hero" id="hero">
       <span class="tag">Ubiquitin · 76 amino acids · v8 network</span>
-      <h1>Watch a protein<br>fold itself.</h1>
+      <h1>Watch it fold.</h1>
     </div>
     <a class="cue" id="cue" href="#how" aria-label="Scroll down to fold the protein"><span>Scroll to fold</span><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M4 7l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
 
@@ -408,7 +408,7 @@ const DATA = {"n":76,"seq":"MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLED
   const CURSORS = [{ i: 47, name: 'Lys48', c: '--c3' }, { i: 43, name: 'Ile44', c: '--c5', ink: '#0c2219' }, { i: 75, name: 'Gly76', c: '--c1' }];
   const cur = CURSORS.map(() => ({ x: 0, y: 0, ok: false }));
   const INTRO = 0.07;   // share of the scroll spent on the landing and headline before the simulation starts
-  let zoom = 0, prog = 0, shown = -1, spinOn = !reduce, ghostOn = false, angle = 0.6, last = performance.now(), panel = 0, hero = 0;
+  let zoom = 0, prog = 0, shown = -1, spinOn = !reduce, ghostOn = false, angle = 0.6, last = performance.now(), panel = 0, hero = 1;
 
   function project(P, ang, tilt, scale, cx, cy) {
     const ca = Math.cos(ang), sa = Math.sin(ang), ct = Math.cos(tilt), st = Math.sin(tilt), out = new Array(n), camD = 140;
@@ -455,7 +455,7 @@ const DATA = {"n":76,"seq":"MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLED
     const cap = $('cap'); cap.style.opacity = panel.toFixed(3); cap.classList.toggle('live', panel > 0.5);
     const tools = $('tools'); tools.style.opacity = panel.toFixed(3); tools.classList.toggle('live', panel > 0.5);
     // landing: the headline sits over a faded protein; it fades out in the first few percent of the scroll
-    const hv = ease(clamp((prog - 0.004) / 0.02, 0, 1)) * (1 - ease(clamp((prog - 0.045) / 0.025, 0, 1)));
+    const hv = 1 - ease(clamp((prog - 0.012) / 0.035, 0, 1));   // on screen at the start, gone before the fold begins
     hero += (hv - hero) * 0.25; if (Math.abs(hv - hero) > 0.002) need = true;
     $('hero').style.opacity = hero.toFixed(3); $('hero').style.visibility = hero < 0.02 ? 'hidden' : 'visible';
     const cueA = 1 - clamp(prog / 0.012, 0, 1);
@@ -562,7 +562,7 @@ const DATA = {"n":76,"seq":"MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLED
     if (prog >= 0.999 || prog < INTRO) window.scrollTo({ top: startY() + span() * INTRO, behavior: 'instant' });
     want = null; setPlay(true); requestAnimationFrame(playStep);
   });
-  $('cue').addEventListener('click', e => { e.preventDefault(); window.scrollTo({ top: startY() + span() * 0.03, behavior: reduce ? 'instant' : 'smooth' }); });
+  $('cue').addEventListener('click', e => { e.preventDefault(); window.scrollTo({ top: startY() + span() * INTRO, behavior: reduce ? 'instant' : 'smooth' }); });
   $('b-back').addEventListener('click', () => { setPlay(false); window.scrollTo({ top: startY() + span() * INTRO, behavior: reduce ? 'instant' : 'smooth' }); });
   $('b-spin').addEventListener('click', e => { spinOn = !spinOn; e.currentTarget.setAttribute('aria-pressed', String(spinOn)); need = true; });
   $('b-ghost').addEventListener('click', e => { ghostOn = !ghostOn; e.currentTarget.setAttribute('aria-pressed', String(ghostOn)); need = true; });
