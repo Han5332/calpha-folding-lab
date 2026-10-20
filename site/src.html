@@ -1,0 +1,418 @@
+<title>Scroll to Fold</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: a design-tool workspace. A dotted canvas holds the protein inside a selection box; layers on the left are the
+   folding stages, the properties panel on the right shows the live measurements; scrolling scrubs the simulation. */
+:root {
+  --canvas: #f2f2f2; --dot: #d6d6d6; --panel: #ffffff; --ink: #1e1e1e; --ink-2: #4d4d4d; --muted: #8a8a8a;
+  --line: #e5e5e5; --select: #0d99ff; --select-ink: #ffffff; --native: #b8b8b8;
+  --c1: #f24e1e; --c2: #ff7262; --c3: #a259ff; --c4: #1abcfe; --c5: #0acf83;
+  --helix: #a259ff; --strand: #0acf83; --coil: #d9d9d9;
+  --font: Arial, "Helvetica Neue", Helvetica, sans-serif;
+  --bar: 52px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --canvas: #1e1e1e; --dot: #383838; --panel: #2c2c2c; --ink: #f5f5f5; --ink-2: #c7c7c7; --muted: #8f8f8f;
+    --line: #3d3d3d; --select: #0d99ff; --select-ink: #ffffff; --native: #5c5c5c; --coil: #4a4a4a; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --canvas: #1e1e1e; --dot: #383838; --panel: #2c2c2c; --ink: #f5f5f5; --ink-2: #c7c7c7; --muted: #8f8f8f;
+  --line: #3d3d3d; --select: #0d99ff; --select-ink: #ffffff; --native: #5c5c5c; --coil: #4a4a4a; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--canvas); color: var(--ink); font: 15px/1.5 var(--font); -webkit-font-smoothing: antialiased; }
+a { color: inherit; }
+.gut { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.dots { background-image: radial-gradient(var(--dot) 1px, transparent 1.2px); background-size: 22px 22px; }
+
+/* top bar */
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; height: var(--bar); background: var(--panel); border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; gap: 14px; }
+.mark { width: 30px; height: 30px; border-radius: 8px; background: var(--ink); color: var(--panel); display: grid; place-items: center; font-weight: 700; font-size: 13px; flex: none; }
+.crumb { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.crumb b { color: var(--ink); font-weight: 700; }
+.spacer { flex: 1; }
+.btn { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; border-radius: 8px; border: 1px solid transparent; font: 700 13px var(--font); text-decoration: none; white-space: nowrap; cursor: pointer; }
+.btn.primary { background: var(--select); color: var(--select-ink); }
+.btn.ghost { border-color: var(--line); background: var(--panel); color: var(--ink); }
+.btn:focus-visible, a:focus-visible { outline: 2px solid var(--select); outline-offset: 2px; }
+
+/* hero */
+.hero { padding-block: 56px 28px; max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 32px; align-items: end; }
+.tag { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
+.tag i { width: 10px; height: 10px; border-radius: 3px; background: var(--c3); display: inline-block; }
+h1 { font-size: clamp(44px, 8vw, 104px); line-height: .92; letter-spacing: -0.045em; margin: 14px 0 0; font-weight: 700; text-wrap: balance; }
+h1 .sw { display: inline-block; padding: 0 .12em; border-radius: .16em; color: #fff; }
+.lede { font-size: 18px; color: var(--ink-2); max-width: 46ch; margin: 0; }
+.lede b { color: var(--ink); }
+.hint { display: inline-flex; align-items: center; gap: 10px; margin-top: 18px; font-size: 13px; color: var(--muted); }
+.hint .wheel { width: 18px; height: 28px; border: 2px solid var(--muted); border-radius: 10px; position: relative; }
+.hint .wheel::after { content: ""; position: absolute; left: 50%; top: 5px; width: 3px; height: 6px; margin-left: -1.5px; border-radius: 2px; background: var(--muted); animation: wheel 1.6s infinite; }
+@keyframes wheel { 0% { transform: translateY(0); opacity: 1; } 80% { transform: translateY(8px); opacity: 0; } 100% { opacity: 0; } }
+
+/* scroll stage */
+.story { position: relative; height: 640vh; }
+.stick { position: sticky; top: calc(var(--bar) + env(safe-area-inset-top, 0px)); height: calc(100vh - var(--bar)); height: calc(100dvh - var(--bar) - env(safe-area-inset-top, 0px));
+  display: grid; grid-template-columns: 250px minmax(0, 1fr) 270px; }
+.panel { background: var(--panel); border-color: var(--line); border-style: solid; border-width: 0; overflow: auto; padding: 14px; }
+.panel.left { border-right-width: 1px; }
+.panel.right { border-left-width: 1px; }
+.ph { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 4px 0 10px; }
+.layers { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.layers li { border-radius: 6px; padding: 7px 8px; color: var(--ink-2); font-size: 13px; }
+.layers li .ln { display: flex; align-items: center; gap: 8px; }
+.layers li .ln svg { flex: none; }
+.layers li p { margin: 6px 0 2px 22px; font-size: 13px; line-height: 1.45; color: var(--ink-2); display: none; }
+.layers li.on { background: color-mix(in srgb, var(--select) 14%, transparent); color: var(--ink); font-weight: 700; }
+.layers li.on p { display: block; font-weight: 400; }
+.layers li.done { color: var(--muted); }
+.stagebar { height: 3px; border-radius: 2px; background: var(--line); margin: 14px 0 0; overflow: hidden; }
+.stagebar i { display: block; height: 100%; width: 0; background: var(--select); }
+
+.view { position: relative; min-width: 0; overflow: hidden; }
+#cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.frame-name { position: absolute; left: 18px; top: 14px; font-size: 12px; color: var(--muted); }
+.frame-name b { color: var(--ink); font-weight: 700; }
+.legend { position: absolute; left: 18px; bottom: 16px; display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.grad { width: 54px; height: 6px; border-radius: 3px; background: linear-gradient(90deg, var(--c1), var(--c2), var(--c3), var(--c4), var(--c5)); }
+.ghost { width: 18px; height: 0; border-top: 3px dashed var(--native); }
+
+.props { display: grid; gap: 0; }
+.prop { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: baseline; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.prop span { color: var(--muted); }
+.prop b { font-variant-numeric: tabular-nums; font-weight: 700; }
+.prop b small { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 3px; }
+.spark { width: 100%; height: 74px; display: block; margin-top: 8px; }
+.ssrow { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 8px; align-items: center; font-size: 11px; color: var(--muted); margin-top: 6px; }
+.ss { height: 12px; display: flex; border-radius: 3px; overflow: hidden; }
+.ss i { flex: 1; }
+.kv { font-size: 12px; color: var(--muted); margin-top: 10px; line-height: 1.45; }
+
+/* sections */
+section.band { padding-block: 72px; }
+.wrap { max-width: 1180px; margin: 0 auto; }
+h2 { font-size: clamp(30px, 4.4vw, 52px); line-height: 1; letter-spacing: -0.035em; margin: 0 0 14px; text-wrap: balance; }
+.sub { color: var(--ink-2); max-width: 60ch; margin: 0 0 32px; font-size: 16px; }
+.flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; }
+.fr { min-width: 0; }
+.fr .fl { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.fr .fb { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: grid; gap: 10px; align-content: start; min-height: 100%; }
+.fr .big { font-size: 34px; font-weight: 700; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.fr h3 { margin: 0; font-size: 16px; }
+.fr p { margin: 0; font-size: 14px; color: var(--ink-2); }
+.chip { justify-self: start; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; padding: 3px 8px; border-radius: 6px; color: #fff; }
+
+.bench { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 8px 0; overflow-x: auto; }
+.brow { display: grid; grid-template-columns: minmax(150px, 1.3fr) 60px minmax(160px, 2fr) 54px; gap: 14px; align-items: center; padding: 9px 18px; font-size: 14px; min-width: 520px; }
+.brow + .brow { border-top: 1px solid var(--line); }
+.brow.head { font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+.brow .num { text-align: right; font-variant-numeric: tabular-nums; }
+.brow .muted { color: var(--muted); }
+.track { position: relative; height: 10px; border-radius: 5px; background: var(--line); }
+.track i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 5px; }
+.scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.note { font-size: 13px; color: var(--muted); margin: 14px 0 0; max-width: 72ch; }
+
+.cta { background: var(--ink); color: var(--panel); border-radius: 20px; padding: 44px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: center; }
+.cta h2 { margin: 0 0 8px; }
+.cta p { margin: 0; color: color-mix(in srgb, var(--panel) 72%, transparent); max-width: 52ch; }
+footer { padding-block: 28px 44px; font-size: 13px; color: var(--muted); }
+
+@media (max-width: 1060px) {
+  .stick { grid-template-columns: minmax(0, 1fr) 250px; }
+  .panel.left { display: none; }
+  .mcap { display: block !important; }
+}
+@media (max-width: 760px) {
+  .hero { grid-template-columns: minmax(0, 1fr); padding-block: 36px 20px; }
+  .stick { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+  .panel.right { border-left-width: 0; border-top-width: 1px; padding: 10px 14px; max-height: 38vh; }
+  .panel.right .full { display: none; }
+  .props { grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 14px; }
+  .prop { grid-template-columns: minmax(0, 1fr); gap: 0; border-bottom: 0; padding: 3px 0; }
+  .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cta { grid-template-columns: minmax(0, 1fr); padding: 28px; }
+  .crumb .hide { display: none; }
+}
+@media (max-width: 460px) { .flow { grid-template-columns: minmax(0, 1fr); } .brow { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) 76px; min-width: 0; gap: 10px; padding: 9px 14px; } .brow .size { display: none; } }
+.mcap { display: none; position: absolute; left: 12px; right: 12px; top: 40px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 13px; color: var(--ink-2); }
+.mcap b { color: var(--ink); display: block; margin-bottom: 2px; }
+@media (prefers-reduced-motion: reduce) { .hint .wheel::after { animation: none; } html { scroll-behavior: auto; } }
+</style>
+
+<header class="bar gut">
+  <div class="mark" aria-hidden="true">Cα</div>
+  <div class="crumb"><span class="hide">Cα Folding Lab / </span><b>Ubiquitin</b> <span class="hide">· 1UBQ · 76 residues</span></div>
+  <div class="spacer"></div>
+  <a class="btn primary" href="https://claude.ai/artifact/RyVANvfC8waqLfb8ck74TY" target="_blank" rel="noopener">Open the lab</a>
+</header>
+
+<div class="hero gut">
+  <div>
+    <span class="tag"><i></i>Protein folding, in your browser</span>
+    <h1>Scroll to <span class="sw" style="background:var(--c1)">fold</span> a <span class="sw" style="background:var(--c3)">protein</span>.</h1>
+  </div>
+  <div>
+    <p class="lede">This is <b>ubiquitin</b>, 76 amino acids long, folding from a stretched-out chain into its real shape. Every frame comes from one run of the lab's <b>v8 network</b> and physics model. Nothing here was drawn by hand.</p>
+    <div class="hint"><span class="wheel" aria-hidden="true"></span>Scroll down to run the simulation</div>
+  </div>
+</div>
+
+<div class="story" id="story">
+  <div class="stick">
+    <aside class="panel left" aria-label="Folding stages">
+      <div class="ph">Layers</div>
+      <ul class="layers" id="layers"></ul>
+      <div class="stagebar"><i id="stagebar"></i></div>
+    </aside>
+    <div class="view dots" id="view">
+      <canvas id="cv" aria-label="Ubiquitin folding, drawn as a chain of 76 residues colored from start to end"></canvas>
+      <div class="frame-name"><b>1UBQ</b> · ubiquitin · Cα trace</div>
+      <div class="mcap" id="mcap"></div>
+      <div class="legend"><span><span class="grad"></span>residue 1 → 76</span><span id="lg-native" hidden><span class="ghost"></span>real structure (PDB)</span></div>
+    </div>
+    <aside class="panel right" aria-label="Measurements">
+      <div class="ph">Properties</div>
+      <div class="props">
+        <div class="prop"><span>Step</span><b id="p-step">0</b></div>
+        <div class="prop"><span>Temperature</span><b id="p-t">2.00<small>kT</small></b></div>
+        <div class="prop"><span>Energy</span><b id="p-e">0<small>ε</small></b></div>
+        <div class="prop"><span>RMSD to PDB</span><b id="p-rmsd">–<small>Å</small></b></div>
+        <div class="prop"><span>Native contacts</span><b id="p-q">–</b></div>
+        <div class="prop"><span>Radius of gyration</span><b id="p-rg">–<small>Å</small></b></div>
+      </div>
+      <div class="full">
+        <div class="ph" style="margin-top:18px">RMSD over the run</div>
+        <canvas class="spark" id="spark" aria-label="RMSD to the real structure over the simulation"></canvas>
+        <div class="ph" style="margin-top:16px">Secondary structure</div>
+        <div class="ssrow"><span>now</span><div class="ss" id="ss-now"></div></div>
+        <div class="ssrow"><span>PDB</span><div class="ss" id="ss-pdb"></div></div>
+        <div class="kv"><span style="color:var(--helix)">■</span> helix &nbsp; <span style="color:var(--strand)">■</span> strand &nbsp; ■ other</div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<section class="band gut">
+  <div class="wrap">
+    <h2>How the fold is found</h2>
+    <p class="sub">The lab never sees the answer. It starts from the sequence and the protein's evolutionary relatives, and only compares with the PDB structure at the end.</p>
+    <div class="flow" id="flow"></div>
+  </div>
+</section>
+
+<section class="band gut" style="padding-top:0">
+  <div class="wrap">
+    <h2>Ten proteins, three seeds each</h2>
+    <p class="sub">Distance from the real structure after folding with v8, averaged over three random seeds of 12 replicas. Lower is better; under about 3 Å the fold is essentially right.</p>
+    <div class="bench" id="bench"></div>
+    <p class="note">TM-score runs from 0 to 1, and above 0.5 usually means the same fold. It is harsh on very small peptides such as chignolin and Trp-cage, which can sit close in Å and still score low.</p>
+  </div>
+</section>
+
+<section class="band gut" style="padding-top:0">
+  <div class="wrap">
+    <div class="cta">
+      <div>
+        <h2>Fold one yourself</h2>
+        <p>The lab runs entirely in your browser: pick one of ten proteins, watch 12 replicas fold at once and compare the result with the experimental structure.</p>
+      </div>
+      <a class="btn primary" style="height:44px;padding:0 20px;font-size:15px" href="https://claude.ai/artifact/RyVANvfC8waqLfb8ck74TY" target="_blank" rel="noopener">Open the lab</a>
+    </div>
+  </div>
+</section>
+
+<footer class="gut"><div class="wrap">Structure 1UBQ from the RCSB Protein Data Bank. Alignment from ColabFold MMseqs2. The trajectory is one replica of a 1.2-million-step run (seed 202); the lab itself runs 12 and picks the consensus.</div></footer>
+
+<script>
+const DATA = /*DATA*/null;
+(() => {
+  const $ = id => document.getElementById(id);
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const D = DATA, n = D.n, NF = D.frames.length;
+  // frames: int16 ×100 coordinates, already superposed on the PDB structure and centred on it
+  const raw = Uint8Array.from(atob(D.xyz), c => c.charCodeAt(0)), I16 = new Int16Array(raw.buffer);
+  const frameXYZ = k => I16.subarray(k * n * 3, (k + 1) * n * 3);
+  const native = Float32Array.from(D.native);
+  const F = D.frames;   // [step, T, E, rmsd, tm, q, rg, ss]
+
+  // ---- stages (from the run's own schedule: restraints by sequence separation, then annealing) ----
+  // boundaries follow the run's own schedule: restraints switch on by sequence separation (up to 12, then 24 apart)
+  // over the first quarter of the steps, and the temperature keeps falling until 85% of the run
+  const ST = [
+    { name: 'Unfolded chain', until: 15000, text: `76 residues, stretched out at high temperature (${F[0][1].toFixed(1)} kT). Nothing is decided yet.` },
+    { name: 'Local turns', until: 300000, text: 'Restraints between residues up to 12 and then 24 apart switch on first, so helices and turns form along the chain.' },
+    { name: 'Long-range contacts', until: 480000, text: `All ${D.restraints.toLocaleString('en-US')} predicted distances are active. Distant parts of the chain find each other and the β-sheet pairs up.` },
+    { name: 'Annealing', until: 1020000, text: 'The temperature falls to 0.4 kT. The chain settles into the lowest-energy arrangement it can find.' },
+    { name: 'Folded', until: Infinity, text: `The last frame sits ${D.final.rmsd.toFixed(1)} Å from the experimental structure, drawn dashed in grey (TM-score ${D.final.tm.toFixed(2)}).` },
+  ];
+  ST.forEach(st => { const k = F.findIndex(f => f[0] >= st.until); st.to = k < 0 ? 1 : k / (NF - 1); });
+  const icon = c => `<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><rect x="1.5" y="1.5" width="11" height="11" rx="2.5" fill="none" stroke="${c}" stroke-width="1.6"/><path d="M4.5 9.5c1.2-3 2.6-3 3.2-1.2s1.8 1.4 2-1.8" fill="none" stroke="${c}" stroke-width="1.4" stroke-linecap="round"/></svg>`;
+  $('layers').innerHTML = ST.map((s, i) => `<li data-i="${i}"><div class="ln">${icon('currentColor')}${s.name}</div><p>${s.text}</p></li>`).join('');
+  const layerEls = [...$('layers').children];
+
+  // ---- secondary-structure strips ----
+  const ssColor = c => (c === 'H' || c === 'G' ? 'var(--helix)' : c === 'E' ? 'var(--strand)' : 'var(--coil)');
+  $('ss-pdb').innerHTML = [...D.ssNative].map(c => `<i style="background:${ssColor(c)}"></i>`).join('');
+  $('ss-now').innerHTML = Array.from({ length: n }, () => '<i></i>').join('');
+  const ssNow = [...$('ss-now').children];
+
+  // ---- pipeline cards and benchmark ----
+  const FLOW = [
+    { label: 'Frame 1 · Alignment', color: 'var(--c1)', chip: 'Evolution', big: '1,500', h: 'related sequences', p: 'Proteins that share ubiquitin\'s ancestry. Positions that mutate together are usually touching.' },
+    { label: 'Frame 2 · Network', color: 'var(--c3)', chip: 'AI', big: '583k', h: 'trained weights', p: 'A convolutional network reads the alignment and predicts a distance histogram for every pair of residues.' },
+    { label: 'Frame 3 · Restraints', color: 'var(--c4)', ink: '#10202b', chip: 'Physics', big: D.restraints.toLocaleString('en-US'), h: 'distance restraints', p: 'Each confident prediction becomes a spring-like energy term on top of a knowledge-based force field.' },
+    { label: 'Frame 4 · Replicas', color: 'var(--c5)', ink: '#0c2219', chip: 'Search', big: '12', h: 'independent runs', p: 'Twelve copies fold in parallel. The answer is the lowest-energy cluster that most of them agree on.' },
+  ];
+  $('flow').innerHTML = FLOW.map(f => `<div class="fr"><div class="fl">${f.label}</div><div class="fb"><span class="chip" style="background:${f.color};color:${f.ink || '#fff'}">${f.chip}</span><div class="big">${f.big}</div><h3>${f.h}</h3><p>${f.p}</p></div></div>`).join('');
+  const B = D.bench, maxA = 6;
+  $('bench').innerHTML = `<div class="brow head"><span>Protein</span><span class="num size">Size</span><span>RMSD to the real structure</span><span class="num">TM</span></div>` +
+    B.map(b => `<div class="brow"><span><b>${b.name}</b> <span class="muted">${b.id}</span></span><span class="num muted size">${b.n}</span>
+      <span><div class="track"><i style="width:${(100 * Math.min(b.rmsd, maxA) / maxA).toFixed(1)}%;background:${b.rmsd <= 3 ? 'var(--c5)' : b.rmsd <= 4 ? 'var(--c4)' : 'var(--c2)'}"></i></div></span>
+      <span class="num"><b>${b.rmsd.toFixed(1)}</b> Å · ${b.tm.toFixed(2)}</span></div>`).join('') +
+    `<div class="brow" style="padding-top:2px"><span></span><span class="size"></span><div class="scale"><span>0 Å</span><span>2</span><span>4</span><span>6 Å</span></div><span></span></div>`;
+
+  // ---- drawing ----
+  const cv = $('cv'), ctx = cv.getContext('2d'), sp = $('spark'), sctx = sp.getContext('2d');
+  let W = 0, H = 0, dpr = 1;
+  function size() {
+    const r = cv.getBoundingClientRect(); dpr = Math.min(2, window.devicePixelRatio || 1);
+    W = r.width; H = r.height; cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    const s = sp.getBoundingClientRect(); sp.width = Math.round(s.width * dpr); sp.height = Math.round(s.height * dpr);
+    need = true;
+  }
+  const hex = c => { const v = css(c).replace('#', ''); return [0, 2, 4].map(k => parseInt(v.slice(k, k + 2), 16)); };
+  let PAL = [], CAN = [0, 0, 0], NAT = [0, 0, 0], SEL = '#0d99ff';
+  function palette() { PAL = ['--c1', '--c2', '--c3', '--c4', '--c5'].map(hex); CAN = hex('--canvas'); NAT = hex('--native'); SEL = css('--select'); need = true; }
+  function colorAt(t, fog) {
+    const u = t * (PAL.length - 1), k = Math.min(PAL.length - 2, Math.floor(u)), f = u - k, a = PAL[k], b = PAL[k + 1];
+    const c = [0, 1, 2].map(j => a[j] + (b[j] - a[j]) * f);
+    return `rgb(${c.map((v, j) => Math.round(v + (CAN[j] - v) * fog)).join(',')})`;
+  }
+  const pos = new Float32Array(n * 3);
+  function coords(fr) {
+    const k = Math.min(NF - 2, Math.floor(fr)), f = Math.min(1, fr - k), a = frameXYZ(k), b = frameXYZ(k + 1);
+    for (let i = 0; i < 3 * n; i++) pos[i] = (a[i] + (b[i] - a[i]) * f) / 100;
+    return pos;
+  }
+  const CURSORS = [{ i: 47, name: 'Lys48', c: '--c3' }, { i: 43, name: 'Ile44', c: '--c5', ink: '#0c2219' }, { i: 75, name: 'Gly76', c: '--c1' }];
+  const cur = CURSORS.map(() => ({ x: 0, y: 0, ok: false }));
+  let zoom = 0, prog = 0, shown = -1, need = true, t0 = performance.now(), spin = 0;
+
+  function project(P, ang, tilt, scale) {
+    const ca = Math.cos(ang), sa = Math.sin(ang), ct = Math.cos(tilt), st = Math.sin(tilt), out = [];
+    const cx = W / 2, cy = H / 2 + (W < 760 ? 0 : 10), camD = 140;
+    for (let i = 0; i < n; i++) {
+      const x = P[3 * i], y = P[3 * i + 1], z = P[3 * i + 2];
+      const x1 = x * ca + z * sa, z1 = -x * sa + z * ca, y1 = y * ct - z1 * st, z2 = y * st + z1 * ct;
+      const persp = camD / (camD + z2);
+      out.push({ x: cx + x1 * scale * persp, y: cy - y1 * scale * persp, z: z2, p: persp });
+    }
+    return out;
+  }
+  function drawChain(pts, widthBase, ghost) {
+    const segs = [];
+    for (let i = 0; i < n - 1; i++) segs.push([i, (pts[i].z + pts[i + 1].z) / 2]);
+    segs.sort((a, b) => b[1] - a[1]);
+    let zmin = Infinity, zmax = -Infinity;
+    for (const p of pts) { zmin = Math.min(zmin, p.z); zmax = Math.max(zmax, p.z); }
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for (const [i, z] of segs) {
+      const a = pts[i], b = pts[i + 1], fog = zmax > zmin ? 0.55 * (z - zmin) / (zmax - zmin) : 0, w = widthBase * (a.p + b.p) / 2;
+      if (ghost) {
+        ctx.strokeStyle = `rgba(${NAT.join(',')},${0.9 - fog * 0.5})`; ctx.lineWidth = w * 0.42; ctx.setLineDash([w * 0.5, w * 0.6]);
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); continue;
+      }
+      ctx.setLineDash([]);
+      ctx.strokeStyle = colorAt((i + 0.5) / (n - 1), fog); ctx.lineWidth = w;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      ctx.strokeStyle = `rgba(255,255,255,${0.32 * (1 - fog)})`; ctx.lineWidth = w * 0.28;
+      ctx.beginPath(); ctx.moveTo(a.x - w * 0.16, a.y - w * 0.18); ctx.lineTo(b.x - w * 0.16, b.y - w * 0.18); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+  }
+  function rr(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+
+  function render(now) {
+    const fr = prog * (NF - 1), k = Math.round(fr), st = F[Math.min(NF - 1, k)], P = coords(fr);
+    // zoom follows the chain's size so the collapse stays visible but never leaves the frame
+    let ext = 0; for (let i = 0; i < n; i++) ext = Math.max(ext, Math.hypot(P[3 * i], P[3 * i + 1], P[3 * i + 2]));
+    const target = Math.min(W, H) * 0.42 / Math.max(16, ext * 0.9);
+    zoom = zoom ? zoom + (target - zoom) * 0.12 : target;
+    spin = reduce ? 0 : (now - t0) / 9000;
+    const ang = 0.6 + prog * Math.PI * 1.6 + spin, tilt = 0.32;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+    const wBase = Math.max(5, Math.min(13, zoom * 1.05));
+    const showNative = prog > ST[3].to;
+    if (showNative) drawChain(project(native, ang, tilt, zoom), wBase, true);
+    const pts = project(P, ang, tilt, zoom);
+    drawChain(pts, wBase, false);
+    // selection box with handles and a size pill, as a design tool draws around a selected layer
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const p of pts) { x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y); }
+    const pad = wBase; x0 -= pad; y0 -= pad; x1 += pad; y1 += pad;
+    ctx.strokeStyle = SEL; ctx.lineWidth = 1.2; ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+    for (const [hx, hy] of [[x0, y0], [x1, y0], [x0, y1], [x1, y1], [(x0 + x1) / 2, y0], [(x0 + x1) / 2, y1], [x0, (y0 + y1) / 2], [x1, (y0 + y1) / 2]]) {
+      ctx.fillStyle = '#fff'; ctx.fillRect(hx - 4, hy - 4, 8, 8); ctx.strokeRect(hx - 4, hy - 4, 8, 8);
+    }
+    const pill = `Rg ${st[6].toFixed(1)} Å`;
+    ctx.font = '700 12px Arial, Helvetica, sans-serif'; const tw = ctx.measureText(pill).width + 14, px = (x0 + x1) / 2 - tw / 2, py = Math.min(H - 30, y1 + 8);
+    ctx.fillStyle = SEL; rr(px, py, tw, 20, 5); ctx.fill(); ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle'; ctx.fillText(pill, px + 7, py + 10.5);
+    // collaborator-style cursors pinned to three well-known residues
+    CURSORS.forEach((c, j) => {
+      const p = pts[c.i], s = cur[j];
+      if (!s.ok) { s.x = p.x; s.y = p.y; s.ok = true; } else { s.x += (p.x - s.x) * 0.25; s.y += (p.y - s.y) * 0.25; }
+      const col = css(c.c), x = s.x + 4, y = s.y + 4;
+      ctx.fillStyle = col; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + 17); ctx.lineTo(x + 4.6, y + 12.6); ctx.lineTo(x + 11, y + 12.6); ctx.closePath(); ctx.fill(); ctx.stroke();
+      const lw = ctx.measureText(c.name).width + 12; ctx.fillStyle = col; rr(x + 10, y + 15, lw, 19, 5); ctx.fill();
+      ctx.fillStyle = c.ink || '#fff'; ctx.fillText(c.name, x + 16, y + 25);
+    });
+    // panels
+    if (k !== shown) {
+      shown = k;
+      $('p-step').textContent = st[0].toLocaleString('en-US');
+      $('p-t').innerHTML = `${st[1].toFixed(2)}<small>kT</small>`;
+      $('p-e').innerHTML = `${Math.round(st[2]).toLocaleString('en-US')}<small>ε</small>`;
+      $('p-rmsd').innerHTML = `${st[3].toFixed(1)}<small>Å</small>`;
+      $('p-q').textContent = Math.round(100 * st[5]) + '%';
+      $('p-rg').innerHTML = `${st[6].toFixed(1)}<small>Å</small>`;
+      const s = st[7]; for (let i = 0; i < n; i++) ssNow[i].style.background = ssColor(s[i]);
+      const si = ST.findIndex(x => prog <= x.to);
+      layerEls.forEach((el, i) => { el.classList.toggle('on', i === si); el.classList.toggle('done', i < si); });
+      $('mcap').innerHTML = `<b>${ST[si].name}</b>${ST[si].text}`;
+      $('stagebar').style.width = (100 * prog).toFixed(1) + '%';
+      $('lg-native').hidden = !showNative;
+      drawSpark(k);
+    }
+  }
+  function drawSpark(k) {
+    const w = sp.width / dpr, h = sp.height / dpr; if (!w) return;
+    sctx.setTransform(dpr, 0, 0, dpr, 0, 0); sctx.clearRect(0, 0, w, h);
+    const vmax = Math.ceil(Math.max(...F.map(f => f[3])) / 5) * 5, X = i => 2 + (w - 30) * i / (NF - 1), Y = v => 6 + (h - 18) * (1 - v / vmax);
+    sctx.font = '10px Arial, Helvetica, sans-serif'; sctx.fillStyle = css('--muted'); sctx.textBaseline = 'middle';
+    [0, vmax / 2, vmax].forEach(v => { sctx.strokeStyle = css('--line'); sctx.lineWidth = 1; sctx.beginPath(); sctx.moveTo(2, Y(v)); sctx.lineTo(w - 30, Y(v)); sctx.stroke(); sctx.fillText(v + ' Å', w - 26, Y(v)); });
+    sctx.beginPath(); F.forEach((f, i) => (i ? sctx.lineTo(X(i), Y(f[3])) : sctx.moveTo(X(i), Y(f[3]))));
+    sctx.strokeStyle = css('--muted'); sctx.lineWidth = 1.4; sctx.stroke();
+    sctx.beginPath(); F.slice(0, k + 1).forEach((f, i) => (i ? sctx.lineTo(X(i), Y(f[3])) : sctx.moveTo(X(i), Y(f[3]))));
+    sctx.strokeStyle = SEL; sctx.lineWidth = 2.2; sctx.stroke();
+    sctx.fillStyle = SEL; sctx.beginPath(); sctx.arc(X(k), Y(F[k][3]), 3.5, 0, 7); sctx.fill();
+  }
+  function onScroll() {
+    const s = $('story'), r = s.getBoundingClientRect(), span = s.offsetHeight - (window.innerHeight - 52);
+    prog = Math.max(0, Math.min(1, -r.top / Math.max(1, span)));
+    need = true;
+  }
+  function loop(now) { if (need || !reduce) { render(now); need = false; } requestAnimationFrame(loop); }
+  addEventListener('scroll', onScroll, { passive: true });
+  addEventListener('resize', () => { size(); onScroll(); });
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', palette);
+  new MutationObserver(palette).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  palette(); size(); onScroll(); requestAnimationFrame(loop);
+})();
+</script>
