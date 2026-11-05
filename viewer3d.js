@@ -28,7 +28,7 @@
     this.group = new THREE.Group();
     scene.add(this.group);
     this.opts = opts;
-    this.cartoonMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.02, side: THREE.DoubleSide });
+    this.cartoonMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.34, metalness: 0.22, side: THREE.DoubleSide });   // satin, not plastic
     this.atomMat = new THREE.MeshStandardMaterial({ roughness: 0.38, metalness: 0.02 });
     this.bondMat = new THREE.MeshStandardMaterial({ roughness: 0.45, metalness: 0.02 });
     this.sphereGeo = new THREE.SphereGeometry(1, 18, 12);
@@ -97,12 +97,13 @@
         const B = [T[1] * N[2] - T[2] * N[1], T[2] * N[0] - T[0] * N[2], T[0] * N[1] - T[1] * N[0]];
         // cross-section by secondary structure
         const r = tt < 0.5 ? a : b;
-        let w = 0.3, h = 0.3;
+        // slim cross-sections: thin coil, flat helix and strand ribbons
+        let w = 0.22, h = 0.22;
         if (!trace) {
-          if (strandEnd[a] && i < n - 1) { w = 1.75 * (1 - tt) + 0.3 * tt; h = 0.34; }
-          else if (type[r] === 'H') { w = 1.15; h = 0.26; }
-          else if (type[r] === 'E') { w = 1.0; h = 0.34; }
-        } else { w = h = 0.42; }
+          if (strandEnd[a] && i < n - 1) { w = 1.55 * (1 - tt) + 0.22 * tt; h = 0.2; }
+          else if (type[r] === 'H') { w = 0.95; h = 0.16; }
+          else if (type[r] === 'E') { w = 0.9; h = 0.2; }
+        } else { w = h = 0.34; }
         const cr = cols[r];
         for (let q = 0; q < RING; q++) {
           const ang = (q / RING) * Math.PI * 2, cs = Math.cos(ang), sn = Math.sin(ang), o = 3 * (j * RING + q);
@@ -202,13 +203,16 @@
     const scenes = [new THREE.Scene(), new THREE.Scene()];
     const pivots = scenes.map(sc => { const p = new THREE.Group(); sc.add(p); return p; });
     for (const sc of scenes) {
-      sc.add(new THREE.HemisphereLight(0xffffff, 0x8a8f99, 0.55));
+      sc.add(new THREE.HemisphereLight(0xffffff, 0x3a4250, 0.6));
       const key = new THREE.DirectionalLight(0xffffff, 0.85);
       key.position.set(-0.6, 0.8, 1);
       sc.add(key);
       const fill = new THREE.DirectionalLight(0xffffff, 0.25);
       fill.position.set(0.8, -0.3, 0.6);
       sc.add(fill);
+      const rim = new THREE.DirectionalLight(0xffffff, 0.45);   // from behind: a thin bright edge on the ribbons
+      rim.position.set(0.2, 0.4, -1);
+      sc.add(rim);
     }
     // molecules: model in scene 0; PDB in scene 0 (overlay) or scene 1 (side by side)
     const model = new Molecule(pivots[0]), pdb = new Molecule(pivots[0]);

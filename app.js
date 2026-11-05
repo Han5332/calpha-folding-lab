@@ -92,7 +92,7 @@
 
   // ---------- theme ----------
   const TOKENS = ['bg', 'panel', 'panel-2', 'ink', 'ink-2', 'muted', 'line', 'grid', 'model', 'native', 'helix', 'strand', 'coil',
-    'heat-lo', 'heat-hi', 'ramp-a', 'ramp-b', 'good', 'warn', 'bad', 'stage', 'accent'];
+    'heat-lo', 'heat-hi', 'ramp-a', 'ramp-b', 'good', 'warn', 'bad', 'stage', 'accent', 'm1', 'm2', 'm3', 'm4', 'm5'];
   const theme = {}, trgb = {};
   const hexToRgb = h => { h = h.replace('#', '').trim(); if (h.length === 3) h = h.split('').map(c => c + c).join(''); const n = parseInt(h, 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
   const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
@@ -107,11 +107,8 @@
     pdbDirty = true;
     dirty.all();
   }
-  function hsl(h, s, l) {
-    const a = s * Math.min(l, 1 - l), f = n => { const k = (n + h / 30) % 12; return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)); };
-    return [f(0), f(8), f(4)];
-  }
-  const rainbow = (i, n) => hsl(240 * (1 - i / Math.max(1, n - 1)), 0.72, 0.52);
+  // N → C along the five chain tokens (--m1 … --m5, the same as the start page)
+  const rainbow = (i, n) => { const s = 4 * i / Math.max(1, n - 1), k = Math.min(3, Math.floor(s)); return unit(mix(trgb['m' + (k + 1)], trgb['m' + (k + 2)], s - k)); };
 
   // ---------- formatting ----------
   const fmtSteps = n => (n >= 1e6 ? +(n / 1e6).toFixed(n % 1e6 ? 1 : 0) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'k' : String(Math.round(n)));
@@ -659,7 +656,7 @@
   function renderLegend3d() {
     const el = $('legend3d'), mode = state.view.color;
     let html;
-    if (mode === 'rainbow') html = `<div class="legendbar"><span>N-term</span><span class="grad" style="background:linear-gradient(90deg,${[0, 0.25, 0.5, 0.75, 1].map(f => css(hsl(240 * (1 - f), 0.72, 0.52).map(v => v * 255))).join(',')})"></span><span>C-term</span></div>`;
+    if (mode === 'rainbow') html = `<div class="legendbar"><span>N-term</span><span class="grad" style="background:linear-gradient(90deg,var(--m1),var(--m2),var(--m3),var(--m4),var(--m5))"></span><span>C-term</span></div>`;
     else if (mode === 'ss') html = '<div class="legendbar"><span class="k"><span class="blk" style="background:var(--helix)"></span>Helix</span><span class="k"><span class="blk" style="background:var(--strand)"></span>Strand</span><span class="k"><span class="blk" style="background:var(--coil)"></span>Coil</span></div>';
     else if (mode === 'dev') html = '<div class="legendbar"><span>0 Å</span><span class="grad" style="background:linear-gradient(90deg,var(--ramp-a),var(--ramp-b))"></span><span>8 Å+ from PDB</span></div>';
     else html = '<div class="legendbar"><span>polar</span><span class="grad" style="background:linear-gradient(90deg,var(--ramp-a),var(--ramp-b))"></span><span>nonpolar</span></div>';
@@ -2142,6 +2139,7 @@
   // ---------- boot ----------
   readTheme();
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', readTheme);
+  if (document.fonts) document.fonts.ready.then(readTheme);   // redraw the canvases once the web fonts arrive
   new MutationObserver(readTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => dirty.all());
   new ResizeObserver(() => dirty.all()).observe(document.querySelector('main'));
