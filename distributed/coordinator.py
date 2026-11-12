@@ -59,7 +59,7 @@ class Coordinator:
     def __init__(s, a):
         s.a = a
         os.makedirs(a.out, exist_ok=True)
-        s.lock = threading.Lock()
+        s.lock = threading.RLock()
         s.started = time.time()
         # same file list and train / held-out split as the single-machine runs, so held-out chains stay unseen
         exclude = set(open(a.exclude).read().split()) if a.exclude else set()
@@ -108,6 +108,7 @@ class Coordinator:
         s.outstanding = {}          # unit id -> {files, worker, issued, version}
         s.requeue = []              # files of units that timed out or were rejected
         s.workers = {}              # worker id -> stats
+        s.joins = {}                # other computer's address -> how far it got with the join link
         s.weights_cache = (None, None)
         s.eval_busy = False
         s.finished = s.state['epoch'] >= a.epochs
@@ -203,6 +204,7 @@ class Coordinator:
             s.state['loss'].append([s.state['version'], round(ld, 4), round(lsv, 4), round(time.time() - s.started, 1)])
             s.state['loss'] = s.state['loss'][-4000:]
             w['units'] += 1; w['chains'] += len(u['files']); w['secs'] += secs
+            s.note(w.get('ip'), 'update')
             w['rate'] = 0.8 * w['rate'] + 0.2 * (len(u['files']) / max(secs, 1e-3)) if w['units'] > 1 else len(u['files']) / max(secs, 1e-3)
             v = s.state['version']
             if v % s.a.save_every == 0:
@@ -249,6 +251,18 @@ class Coordinator:
         finally:
             s.eval_busy = False
 
+    def note(s, ip, step, **info):
+        """Record a step of another computer's join (page, bat, scripts, joined, update, badlink), for the dashboard."""
+        if not ip or ip in ('127.0.0.1', '::1'):
+            return
+        with s.lock:
+            j = s.joins.setdefault(ip, {'ip': ip, 'steps': {}})
+            j['steps'].setdefault(step, time.time())
+            j['last'] = time.time()
+            j.update(info)
+            if len(s.joins) > 20:
+                del s.joins[min(s.joins, key=lambda k: s.joins[k]['last'])]
+
     def status(s, local):
         with s.lock:
             now = time.time()
@@ -263,6 +277,10 @@ class Coordinator:
                    'workers': ws, 'uptime': round(now - s.started), 'finished': s.finished, 'evalEvery': s.a.eval_every}
             if local:
                 out['join'] = s.join
+                out['joins'] = [{'ip': j['ip'], 'name': j.get('name'), 'device': j.get('device'),
+                                 'ago': {k: round(now - v) for k, v in j['steps'].items()},
+                                 'seen': min((round(now - w['seen']) for w in s.workers.values() if w.get('ip') == j['ip']), default=None)}
+                                for j in sorted(s.joins.values(), key=lambda j: -j['last'])]
             return out
 
 
@@ -293,6 +311,7 @@ def make_handler(C):
         def _authed(self):
             t = self.headers.get('X-Token', '')
             if not hmac.compare_digest(t.encode(), C.token.encode()):
+                C.note(self.client_address[0], 'badlink')
                 self._send(403, {'error': 'wrong token'}); return False
             return True
 
@@ -300,10 +319,12 @@ def make_handler(C):
             host = self.headers.get('Host', '')
             token = parse_qs(u.query).get('token', [''])[0]
             if not hmac.compare_digest(token.encode(), C.token.encode()) or not HOST_RE.match(host):
+                C.note(self.client_address[0], 'badlink')
                 return self._send(403, b'This join link is not valid. Ask for a new one.', 'text/plain; charset=utf-8')
             body, ctype = joinable.get(u.path[len('/join'):], (None, None))
             if body is None:
                 return self._send(404, {'error': 'not found'})
+            C.note(self.client_address[0], 'scripts' if u.path.endswith('.py') else 'bat' if u.path.endswith('.bat') else 'page')
             if not u.path.endswith('.py'):
                 body = body.replace(b'{SERVER}', f'http://{host}'.encode()).replace(b'{TOKEN}', C.token.encode())
             if u.path.endswith('.bat'):
@@ -372,7 +393,8 @@ def make_handler(C):
                 wid = secrets.token_hex(8)
                 with C.lock:
                     C.workers[wid] = {'name': name, 'device': device, 'units': 0, 'chains': 0, 'secs': 0.0, 'rate': 0.0,
-                                      'rejected': 0, 'seen': time.time(), 'joined': time.time()}
+                                      'rejected': 0, 'seen': time.time(), 'joined': time.time(), 'ip': self.client_address[0]}
+                C.note(self.client_address[0], 'joined', name=name, device=device)
                 print(f'joined: {name} ({device})')
                 return self._send(200, {'worker': wid, 'config': {'c1': C.a.c1, 'c2': C.a.c2, 'cycles': C.a.cycles, 'crop_p': C.a.crop_p,
                                                                    'maxl': C.a.maxl, 'clip': C.a.clip}})

@@ -56,6 +56,9 @@ pre { margin: 8px 0 0; padding: 10px 12px; background: var(--sunken); border-rad
 .note { color: var(--ink-2); font-size: 13px; margin: 0; }
 .btn { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 8px; padding: 5px 10px; font: 12.5px var(--font); cursor: pointer; }
 .btn:hover { border-color: var(--accent); }
+td.step { color: var(--muted); }
+td.step.ok { color: var(--good); }
+td.hint { white-space: normal; min-width: 280px; color: var(--ink-2); }
 </style>
 </head>
 <body>
@@ -81,13 +84,14 @@ pre { margin: 8px 0 0; padding: 10px 12px; background: var(--sunken); border-rad
       <div class="legend"><span><i style="background:var(--val)"></i>distance loss (left)</span><span><i style="background:var(--good)"></i>long-range contact precision (right)</span></div></div>
   </div>
 
-  <div class="card" style="margin-bottom:12px"><h2>Who is contributing</h2><div class="wrap"><table id="t-w"></table></div></div>
-
-  <div class="card"><h2>Add a computer</h2>
+  <div class="card" style="margin-bottom:12px"><h2>Add a computer</h2>
     <p class="note">Open this link on the other computer. It must be on the same network as this one.</p>
     <pre id="cmd"></pre>
     <p class="note" style="margin-top:8px" id="cmd-note"></p>
+    <div id="joins" hidden><h2 style="margin-top:16px">Joining</h2><div class="wrap"><table id="t-j"></table></div></div>
   </div>
+
+  <div class="card"><h2>Who is contributing</h2><div class="wrap"><table id="t-w"></table></div></div>
 </main>
 <script>
 const $ = id => document.getElementById(id);
@@ -158,7 +162,34 @@ function render(S) {
     }).join('') + '</tbody>' : '<tbody><tr><td class="empty">No computers yet. Add one with the link below.</td></tr></tbody>';
   $('cmd').textContent = S.join || 'Ask the person running the coordinator for the join link.';
   $('cmd-note').textContent = S.join ? 'The link is shown here because you opened this page on the coordinator itself. Share it only with computers you trust: it lets them download the training data and send updates.' : '';
+  renderJoins(S);
   drawLoss(S); drawVal(S);
+}
+// how far another computer got with the join link, and what it needs next: [state, text]
+function joinHint(j) {
+  const a = j.ago, has = k => a[k] != null, dev = esc(j.device || '');
+  if (has('joined')) {
+    if (j.seen == null || j.seen > 90) return ['bad', `Was connected, but not heard from for ${dur(j.seen == null ? a.joined : j.seen)}: its window was closed, or it slept or left the network. Double-click train.bat again to carry on.`];
+    if (/^cpu/.test(j.device || '')) return ['bad', 'Joined on the processor, not the NVIDIA GPU. Update the NVIDIA driver, then reinstall PyTorch for CUDA 12.8 (README, section 2).'];
+    return has('update') ? ['good', `Training on ${dev}. Its results are being used.`] : ['warn', `Joined on ${dev}. Its first unit is downloading chains and computing.`];
+  }
+  if (has('scripts')) return a.scripts > 180 ? ['bad', `Got the training scripts ${dur(a.scripts)} ago but never joined. The train.bat window says why.`] : ['warn', 'Starting the trainer.'];
+  if (has('bat')) return ['warn', 'Downloaded train.bat. Next: double-click it. The first start installs Python packages (about 3 GB), which can take 10 minutes or more.'];
+  if (has('page')) return ['warn', 'Opened the join page. Next: download train.bat and double-click it.'];
+  return ['bad', 'Tried a link with the wrong token. Open the link above instead.'];
+}
+function renderJoins(S) {
+  $('joins').hidden = !S.joins;
+  if (!S.joins) return;
+  const steps = [['page', 'Opened link'], ['bat', 'train.bat'], ['scripts', 'Scripts'], ['joined', 'Joined'], ['update', 'First result']];
+  const color = { good: 'var(--good)', warn: 'var(--warn)', bad: 'var(--bad)' };
+  $('t-j').innerHTML = S.joins.length ? '<thead><tr><th>Computer</th>' + steps.map(s => `<th>${s[1]}</th>`).join('') + '<th>What is happening</th></tr></thead><tbody>' +
+    S.joins.map(j => {
+      const [st, text] = joinHint(j);
+      return `<tr><td><b>${esc(j.name || j.ip)}</b>${j.name ? `<div class="sub">${esc(j.ip)}</div>` : ''}</td>` +
+        steps.map(([k]) => j.ago[k] != null ? `<td class="step ok">✓ ${dur(j.ago[k])} ago</td>` : '<td class="step">–</td>').join('') +
+        `<td class="hint"><span class="state"><span class="dot" style="background:${color[st]}"></span></span> ${text}</td></tr>`;
+    }).join('') + '</tbody>' : '<tbody><tr><td class="empty">No other computer has opened the join link yet. Each step shows here as soon as one does.</td></tr></tbody>';
 }
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 let last = null;
