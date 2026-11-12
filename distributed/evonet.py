@@ -82,7 +82,8 @@ def inputs(z, tag):
     L = f1.shape[0]
     ln = math.log(float(z[tag + '_neff']) + 1) / 5
     f1 = np.concatenate([f1, np.full((L, 1), ln, np.float32)], 1)
-    sep = np.abs(np.arange(L)[:, None] - np.arange(L)[None]).astype(np.float32)
+    pos = z['idx'] if 'idx' in z else np.arange(L)       # idx: residue numbers, when the columns are two separate segments
+    sep = np.abs(pos[:, None] - pos[None]).astype(np.float32)
     extra = np.stack([np.full((L, L), ln, np.float32), np.log1p(sep) / 5, sep < 6, sep < 12, sep < 24], -1).astype(np.float32)
     f2 = np.concatenate([f2, extra], -1)
     return torch.from_numpy(f1.T[None].copy()), torch.from_numpy(f2.transpose(2, 0, 1)[None].copy())

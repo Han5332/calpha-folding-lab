@@ -118,6 +118,27 @@ precision (top L/2) / Q3. v8 scores 1.433 / 0.647 / 0.827.
 
 So a from-scratch run wants `--lr 2e-3`, and better weights need new chains, not a new optimizer.
 
+## 5. More training data, for big proteins
+
+Above 300 residues the lab reads a protein 128 columns of its alignment at a time. Windows of 128 consecutive residues
+give the pairs close in sequence; up to 1,024 residues, each pair of far-apart 64-residue segments is then read on its
+own, so the network predicts every residue pair. Before, pairs 128 or more apart got no prediction.
+
+- `pick_chains.py` picks new chains: one per RCSB 30%-identity cluster that holds no training, held-out, benchmark or
+  built-in chain, with an alignment in OpenProteinSet (public, on Amazon's open-data service).
+- `make_data.py` downloads each chain's structure (RCSB) and alignment (OpenProteinSet) and writes training files:
+  whole chains, or for long chains `--near 2 --far 4` (windows and far-apart segment pairs, which carry their real
+  residue numbers in `idx`). `--tiles` writes every segment pair of a chain, for testing.
+- `build_feat.py` computes the features exactly as `evo.js` does (`python build_feat.py --check` compares them).
+- `holdout_v8.txt` lists v8's held-out chains; pass it with `--holdout` so added chains never move them into training.
+  `--feat` takes several folders.
+
+On 59 held-back proteins of 266 to 767 residues, v8 gets 27% of its top L/5 far contacts (128 or more apart) right
+without ever training on them, and a short pilot on the first 1,600 long-chain files raised that to 29% while halving
+the far restraints that are wrong. Coevolution computed on the whole chain finds far contacts no better than
+coevolution computed two segments at a time (15% against 13% of the top L/5 on 12 chains), so the segment pairs lose
+nothing.
+
 ## Files
 
 | File | Role |
@@ -127,5 +148,7 @@ So a from-scratch run wants `--lr 2e-3`, and better weights need new chains, not
 | `evonet.py` | Network, inputs, augmentation and loss, shared by both sides |
 | `dashboard.html` | Live view of contributors, throughput and loss |
 | `join.html`, `join.bat` | The join link's page and the Windows starter it hands out |
+| `pick_chains.py`, `make_data.py`, `build_feat.py` | New training chains: choosing them, downloading them, their features |
+| `holdout_v8.txt` | The held-out chains every run so far has used |
 | `export_app.py` | Writes trained weights into the lab's `evo-model.js` |
 | `weights/v8.npz` | v8 weights, the starting point |

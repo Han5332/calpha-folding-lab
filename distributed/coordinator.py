@@ -63,13 +63,20 @@ class Coordinator:
         s.started = time.time()
         # same file list and train / held-out split as the single-machine runs, so held-out chains stay unseen
         exclude = set(open(a.exclude).read().split()) if a.exclude else set()
-        files = sorted(f for f in glob.glob(os.path.join(a.feat, '*.npz'))
+        files = sorted(f for d in a.feat for f in glob.glob(os.path.join(d, '*.npz'))
                        if not os.path.basename(f).startswith('nat_') and os.path.basename(f)[:-4] not in exclude)
         if not files:
             raise SystemExit(f'no training .npz files in {a.feat}')
-        random.Random(1).shuffle(files)
-        nval = max(20, len(files) // 10)
-        s.val, s.train = files[:nval], files[nval:]
+        if a.holdout:
+            # a fixed list keeps the held-out chains held out when chains are added to --feat
+            held = open(a.holdout).read().split()
+            by_name = {os.path.basename(f)[:-4]: f for f in files}
+            s.val = [by_name[n] for n in held if n in by_name]
+            s.train = [f for f in files if os.path.basename(f)[:-4] not in set(held)]
+        else:
+            random.Random(1).shuffle(files)
+            nval = max(20, len(files) // 10)
+            s.val, s.train = files[:nval], files[nval:]
         s.paths = {os.path.basename(f)[:-4]: f for f in s.train}
         s.val_eval = s.val[:a.val]
         s.net = E.Net(a.c1, a.c2, a.cycles)
@@ -389,11 +396,12 @@ def make_handler(C):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--feat', required=True, help='folder of training .npz feature files')
+    ap.add_argument('--feat', required=True, nargs='+', help='folders of training .npz feature files')
     ap.add_argument('--init', help='starting weights (.npz), e.g. weights/v8.npz')
     ap.add_argument('--out', required=True, help='run folder: checkpoints, state, token')
     ap.add_argument('--resume', action='store_true', help='continue the run saved in --out')
     ap.add_argument('--exclude', help='file listing chain names to leave out (test-protein homologs)')
+    ap.add_argument('--holdout', help='file listing the held-out chains, e.g. holdout_v8.txt (default: a random tenth of --feat)')
     ap.add_argument('--host', default='127.0.0.1'); ap.add_argument('--port', type=int, default=8800)
     ap.add_argument('--token', help='shared secret contributors must send (default: generated, saved in --out)')
     ap.add_argument('--epochs', type=int, default=4); ap.add_argument('--unit', type=int, default=8, help='chains per work unit unless a contributor asks for more')
