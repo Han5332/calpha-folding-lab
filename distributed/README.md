@@ -29,10 +29,11 @@ python3 coordinator.py --feat /path/to/feat --exclude exclude_v8.txt --init weig
   related to the test proteins, so the benchmark stays fair.
 - `--host 0.0.0.0` accepts computers on your network. Without it, only this Mac can connect. macOS may ask whether
   Python may accept incoming connections: allow it.
-- The token is printed at start and saved in `run1/token.txt`. The dashboard is at http://localhost:8800/ and shows
-  the full contributor command, token included, when opened on the Mac itself.
-- Find the Mac's address for the other computers with `ipconfig getifaddr en0` (Wi-Fi). Both computers must be on the
-  same network.
+- It prints a **join link** (`http://192.168.x.x:8800/join?token=...`). Open that link on any other computer on the same
+  network to add it: section 2. The dashboard at http://localhost:8800/ shows the link too, when opened on the Mac itself.
+- The token in the link is saved in `run1/token.txt`, so the link stays the same when the run is resumed.
+- Add `--c2 64` or `--cycles 5` to grow v8 into a wider or deeper network before training: see "What was tried" below.
+  A resumed run needs the same two options again.
 - Stop with Ctrl-C (it saves), continue later with `--resume` (same `--feat` and `--out`).
 
 Useful options: `--epochs 4` (passes over the data), `--lr 2e-4` (peak learning rate, warm-up then cosine decay),
@@ -40,32 +41,22 @@ Useful options: `--epochs 4` (passes over the data), `--lr 2e-4` (peak learning 
 
 ## 2. Add a Windows laptop with an RTX 5060
 
-RTX 50-series GPUs need a PyTorch build for CUDA 12.8 or newer; older builds install but cannot use the GPU.
+Open the join link in the laptop's browser, download `train.bat` from the page and double-click it. The file already
+holds the Mac's address and the run's token. It installs what is missing (Python 3.13 through winget, numpy, and the
+CUDA 12.8 build of PyTorch that RTX 50-series GPUs need), downloads `contribute.py` and `evonet.py` from the Mac, and
+starts training with units of 32 chains. Closing the window stops it; double-clicking again carries on.
 
-1. Install Python 3.12 from python.org (3.9 or newer works) (tick "Add python.exe to PATH") and an up-to-date NVIDIA driver.
-2. In PowerShell:
+- The window should say `joined as ... on cuda: NVIDIA GeForce RTX 5060 Laptop GPU (bf16)`. If it says `cpu`, update the
+  NVIDIA driver and run `py -m pip install --force-reinstall torch --index-url https://download.pytorch.org/whl/cu128`.
+- Keep the laptop plugged in and set it not to sleep while it trains.
+- By hand instead: copy `contribute.py` and `evonet.py` to the laptop and run
+  `py contribute.py --server http://192.168.1.23:8800 --token YOUR_TOKEN --chains 32`.
+- `train.bat` was written on a Mac and has not been run on Windows yet.
 
-   ```powershell
-   py -m pip install numpy
-   py -m pip install torch --index-url https://download.pytorch.org/whl/cu128
-   py -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
-   ```
-
-   The last line should print `True NVIDIA GeForce RTX 5060 Laptop GPU`.
-3. Copy `contribute.py` and `evonet.py` from this folder to the laptop (clone the repo, or download it as a ZIP from
-   GitHub while signed in), then run, with the Mac's address and the token:
-
-   ```powershell
-   py contribute.py --server http://192.168.1.23:8800 --token YOUR_TOKEN --name windows-5060 --chains 32
-   ```
-
-   `--chains 32` asks for bigger units, so the GPU spends its time computing rather than waiting on Wi-Fi.
-   Keep the laptop plugged in and set it not to sleep while it trains.
-
-   On an NVIDIA GPU the contributor runs the network in **bf16** (bfloat16 autocast, with TF32 for the rest), which uses
-   the tensor cores of RTX 30/40/50-series cards. Weights, gradients and losses stay float32; on the same chains, bf16
-   gradients matched fp32 to a cosine similarity of 0.9999 (measured with the same bf16 arithmetic on a Mac; the CUDA
-   speed-up itself was not measured here). Pass `--precision fp32` to turn it off.
+On an NVIDIA GPU the contributor runs the network in **bf16** (bfloat16 autocast, with TF32 for the rest), which uses
+the tensor cores of RTX 30/40/50-series cards. Weights, gradients and losses stay float32; on the same chains, bf16
+gradients matched fp32 to a cosine similarity of 0.9999 (measured with the same bf16 arithmetic on a Mac; the CUDA
+speed-up itself was not measured here). Pass `--precision fp32` to turn it off.
 
 ### What the contributor does to keep the GPU busy
 
@@ -76,7 +67,7 @@ RTX 50-series GPUs need a PyTorch build for CUDA 12.8 or newer; older builds ins
   float32 before checking and applying them. `--send fp32` sends full precision. Older contributors that send float32
   keep working with the current coordinator, and the current contributor works with an older coordinator.
 
-The same command works on Linux or another Mac (`python3` instead of `py`, and the CUDA wheel only for NVIDIA GPUs).
+For Linux or another Mac, the join page has a one-line terminal command instead of `train.bat`.
 
 ## 3. Train on the Mac itself (Apple GPU)
 
@@ -106,8 +97,26 @@ python3 contribute.py --server http://127.0.0.1:8800 --token TOKEN --name mac-gp
 python3 export_app.py run1/best.npz ../evo-model.js --note "volunteer run 1"
 ```
 
-Then change the `?v=` tag on `evo-model.js` in `index.html` so browsers fetch the new weights. Benchmark before
-keeping it: a run that only revisits v8's data mostly fine-tunes, and gains need new chains or more epochs.
+Then change the `?v=` tag on `evo-model.js` in `index.html` so browsers fetch the new weights. The exporter reads the
+network's size from the weights, so a grown network needs nothing else; the lab runs it more slowly in proportion to
+its size. Benchmark before keeping it.
+
+### What was tried on v8's data (November 2026)
+
+One Apple M4 GPU, 5,284 training chains, scored on 467 held-out chains: distogram loss / long-range contact
+precision (top L/2) / Q3. v8 scores 1.433 / 0.647 / 0.827.
+
+- Fine-tuning v8 for three epochs changes nothing, whatever the recipe: AdamW 1.433, with a weight average 1.432,
+  squeeze-excitation blocks 1.433, Schedule-Free AdamW 1.433, Cautious AdamW 1.433. v8 is at its plateau on this data.
+- From scratch for one epoch at a peak rate of 2e-3: AdamW 1.681 / 0.462, Cautious AdamW 1.652 / 0.491, Schedule-Free
+  AdamW 1.618 / 0.519. AdamW at 2e-4 (the default) reaches only 1.868 in one epoch, and 6e-3 is past the peak (1.698).
+  Schedule-Free reaches AdamW's one-epoch loss in about half the chains.
+- Schedule-Free from scratch for ten epochs: 1.451 / 0.636 / 0.819, still falling by about 0.005 per epoch. It does not
+  beat v8, so v8 stays in the lab.
+- Speed: one group per channel in `evonet.py` (the same weights and gradients as instance norm) gives 843 chains per
+  minute against 786. Half precision gives nothing on an Apple GPU.
+
+So a from-scratch run wants `--lr 2e-3`, and better weights need new chains, not a new optimizer.
 
 ## Files
 
@@ -117,5 +126,6 @@ keeping it: a run that only revisits v8's data mostly fine-tunes, and gains need
 | `contribute.py` | Contributor loop: fetch, compute gradient, send |
 | `evonet.py` | Network, inputs, augmentation and loss, shared by both sides |
 | `dashboard.html` | Live view of contributors, throughput and loss |
+| `join.html`, `join.bat` | The join link's page and the Windows starter it hands out |
 | `export_app.py` | Writes trained weights into the lab's `evo-model.js` |
 | `weights/v8.npz` | v8 weights, the starting point |

@@ -2,8 +2,8 @@
 
 usage: python export_app.py RUN/best.npz ../evo-model.js [--note "volunteer run 1"]
 
-The current evo-model.js is the template: its network configuration and distance reference table are kept, and only
-the weights (float16, base64) and the training note change. Reload the lab with a new ?v= tag afterwards.
+The current evo-model.js is the template: its distance reference table is kept, and the weights (float16, base64), the
+network's size and the training note change. Reload the lab with a new ?v= tag afterwards.
 """
 import argparse
 import base64
@@ -27,9 +27,13 @@ def main():
     i = text.index(PREFIX) + len(PREFIX)
     spec = json.loads(text[i:text.rindex(';')])
     W = E.from_npz(open(a.weights, 'rb').read())
-    order = [t[0] for t in spec['tensors']]
+    # the network's size is read from the weights, so a grown network exports too
+    cfg = spec['config']
+    cycles = sum(k.startswith('r2.') and k.endswith('.c1.weight') for k in W) // 4
+    cfg['c1'], cfg['c2'], cfg['dil2'] = int(W['in1.weight'].shape[0]), int(W['in2.weight'].shape[0]), E.DIL2[:4] * cycles
+    order = list(E.Net(cfg['c1'], cfg['c2'], cycles).state_dict())
     if set(order) != set(W):
-        sys.exit('these weights do not match the network in ' + a.model_js)
+        sys.exit('these weights are not for the MSA network')
     tensors, chunks, off = [], [], 0
     for name in order:
         arr = np.asarray(W[name], dtype=np.float16).ravel()

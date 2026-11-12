@@ -7,8 +7,8 @@ demand, so a contributor only downloads the chains it is given, and a live dashb
 usage:
   python coordinator.py --feat ../path/to/feat --init weights/v8.npz --out run1
   python coordinator.py --feat ../path/to/feat --out run1 --resume          # continue a stopped run
-Then on each contributing computer:
-  python contribute.py --server http://THIS-COMPUTER:8800 --token TOKEN
+Then open the join link it prints on each contributing computer (or run there:
+  python contribute.py --server http://THIS-COMPUTER:8800 --token TOKEN).
 
 By default it listens on 127.0.0.1 only. Use --host 0.0.0.0 to accept computers on your network; anyone who can reach
 the port and knows the token can download the training data and submit gradients, so share the token only with
@@ -24,6 +24,7 @@ import random
 import re
 import secrets
 import signal
+import socket
 import sys
 import threading
 import time
@@ -38,7 +39,20 @@ import evonet as E  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 NAME_RE = re.compile(r'^[A-Za-z0-9_]{1,40}$')
+HOST_RE = re.compile(r'^[A-Za-z0-9.-]+(:\d+)?$')   # the Host header goes into train.bat, so keep it to an address
 MAX_BODY = 16 << 20
+
+
+def lan_ip():
+    """This computer's address on the local network (connecting a UDP socket sends nothing)."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(('10.255.255.255', 1))
+        return s.getsockname()[0]
+    except OSError:
+        return '127.0.0.1'
+    finally:
+        s.close()
 
 
 class Coordinator:
@@ -58,11 +72,14 @@ class Coordinator:
         s.val, s.train = files[:nval], files[nval:]
         s.paths = {os.path.basename(f)[:-4]: f for f in s.train}
         s.val_eval = s.val[:a.val]
-        s.net = E.Net(a.c1, a.c2)
+        s.net = E.Net(a.c1, a.c2, a.cycles)
         s.opt = torch.optim.AdamW(s.net.parameters(), lr=a.lr, weight_decay=1e-4)
         s.names = [n for n, _ in s.net.named_parameters()]
         s.shapes = {n: tuple(p.shape) for n, p in s.net.named_parameters()}
         s.token = a.token or s._load_or_make_token()
+        if not re.fullmatch(r'[A-Za-z0-9_-]+', s.token):     # it travels in the join link and in train.bat
+            raise SystemExit('--token may only contain letters, digits, - and _')
+        s.join = f'http://{lan_ip()}:{a.port}/join?token={s.token}'
         st = os.path.join(a.out, 'state.json')
         if a.resume and os.path.exists(st):
             s.state = json.load(open(st))
@@ -74,7 +91,8 @@ class Coordinator:
         else:
             if not a.init:
                 raise SystemExit('--init weights.npz is needed for a new run')
-            E.load_weights(s.net, E.from_npz(open(a.init, 'rb').read()))
+            if E.load_weights(s.net, E.from_npz(open(a.init, 'rb').read()), grow=True):
+                print(f'grew {a.init} into a bigger network: same outputs to start with, more room to learn')
             s.state = {'version': 0, 'epoch': 0, 'pos': 0, 'chains': 0, 'loss': [], 'val': [], 'best': None,
                        'rejected': 0, 'stale': 0}
         s.total_chains = len(s.train) * a.epochs
@@ -206,7 +224,7 @@ class Coordinator:
 
     def _evaluate(s, v, snap):
         try:
-            net = E.Net(s.a.c1, s.a.c2)
+            net = E.Net(s.a.c1, s.a.c2, s.a.cycles)
             net.load_state_dict(snap)
             dev = E.pick_device(s.a.eval_device)
             net.to(dev)
@@ -237,12 +255,17 @@ class Coordinator:
                    'rejected': st['rejected'], 'stale': st['stale'], 'outstanding': len(s.outstanding),
                    'workers': ws, 'uptime': round(now - s.started), 'finished': s.finished, 'evalEvery': s.a.eval_every}
             if local:
-                out['token'] = s.token
+                out['join'] = s.join
             return out
 
 
 def make_handler(C):
     page = open(os.path.join(HERE, 'dashboard.html'), 'rb').read()
+    # what the join link serves: a page, a Windows starter with this run's address and token, and the two scripts
+    joinable = {'': ('join.html', 'text/html; charset=utf-8'), '/train.bat': ('join.bat', 'application/octet-stream'),
+                '/contribute.py': ('contribute.py', 'text/plain; charset=utf-8'),
+                '/evonet.py': ('evonet.py', 'text/plain; charset=utf-8')}
+    joinable = {k: (open(os.path.join(HERE, f), 'rb').read(), ctype) for k, (f, ctype) in joinable.items()}
 
     class H(BaseHTTPRequestHandler):
         server_version = 'CalphaCoordinator/1'
@@ -266,6 +289,20 @@ def make_handler(C):
                 self._send(403, {'error': 'wrong token'}); return False
             return True
 
+        def _join(self, u):
+            host = self.headers.get('Host', '')
+            token = parse_qs(u.query).get('token', [''])[0]
+            if not hmac.compare_digest(token.encode(), C.token.encode()) or not HOST_RE.match(host):
+                return self._send(403, b'This join link is not valid. Ask for a new one.', 'text/plain; charset=utf-8')
+            body, ctype = joinable.get(u.path[len('/join'):], (None, None))
+            if body is None:
+                return self._send(404, {'error': 'not found'})
+            if not u.path.endswith('.py'):
+                body = body.replace(b'{SERVER}', f'http://{host}'.encode()).replace(b'{TOKEN}', C.token.encode())
+            if u.path.endswith('.bat'):
+                body = body.replace(b'\n', b'\r\n')
+            self._send(200, body, ctype)
+
         def _worker(self):
             wid = self.headers.get('X-Worker', '')
             with C.lock:
@@ -281,6 +318,8 @@ def make_handler(C):
                 return self._send(200, page, 'text/html; charset=utf-8')
             if u.path == '/api/status':
                 return self._send(200, C.status(self.client_address[0] in ('127.0.0.1', '::1')))
+            if u.path.startswith('/join'):
+                return self._join(u)
             if not self._authed():
                 return
             if u.path == '/api/work':
@@ -328,7 +367,7 @@ def make_handler(C):
                     C.workers[wid] = {'name': name, 'device': device, 'units': 0, 'chains': 0, 'secs': 0.0, 'rate': 0.0,
                                       'rejected': 0, 'seen': time.time(), 'joined': time.time()}
                 print(f'joined: {name} ({device})')
-                return self._send(200, {'worker': wid, 'config': {'c1': C.a.c1, 'c2': C.a.c2, 'crop_p': C.a.crop_p,
+                return self._send(200, {'worker': wid, 'config': {'c1': C.a.c1, 'c2': C.a.c2, 'cycles': C.a.cycles, 'crop_p': C.a.crop_p,
                                                                    'maxl': C.a.maxl, 'clip': C.a.clip}})
             if u.path == '/api/result':
                 wid = self._worker()
@@ -366,6 +405,7 @@ def main():
     ap.add_argument('--eval-every', type=int, default=100); ap.add_argument('--save-every', type=int, default=25)
     ap.add_argument('--eval-device', default='cpu')
     ap.add_argument('--c1', type=int, default=64); ap.add_argument('--c2', type=int, default=48)
+    ap.add_argument('--cycles', type=int, default=3, help='2D blocks = 4 x cycles; with --c2, bigger than --init grows it')
     ap.add_argument('--crop-p', type=float, default=0.35); ap.add_argument('--maxl', type=int, default=256)
     a = ap.parse_args()
     sys.stdout.reconfigure(line_buffering=True)
@@ -378,7 +418,10 @@ def main():
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))   # save on kill too
     shown = 'localhost' if a.host in ('127.0.0.1', '::1') else a.host
     print(f'dashboard: http://{shown}:{a.port}/')
-    print(f'contributors run:  python contribute.py --server http://<this computer>:{a.port} --token {C.token}')
+    if shown == 'localhost':
+        print('other computers cannot join: start with --host 0.0.0.0 to get a join link')
+    else:
+        print(f'join link, to open on the other computer: {C.join}')
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

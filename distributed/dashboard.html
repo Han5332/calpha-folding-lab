@@ -84,7 +84,7 @@ pre { margin: 8px 0 0; padding: 10px 12px; background: var(--sunken); border-rad
   <div class="card" style="margin-bottom:12px"><h2>Who is contributing</h2><div class="wrap"><table id="t-w"></table></div></div>
 
   <div class="card"><h2>Add a computer</h2>
-    <p class="note">On the other computer: install Python 3 with <b>numpy</b> and <b>torch</b>, copy <b>contribute.py</b> and <b>evonet.py</b> from the repo's <b>distributed</b> folder, then run:</p>
+    <p class="note">Open this link on the other computer. It must be on the same network as this one.</p>
     <pre id="cmd"></pre>
     <p class="note" style="margin-top:8px" id="cmd-note"></p>
   </div>
@@ -155,10 +155,9 @@ function render(S) {
     rows.map(w => {
       const st = w.seen > 90 ? ['var(--muted)', 'gone'] : w.busy ? ['var(--good)', 'computing'] : ['var(--warn)', 'idle'];
       return `<tr><td><b>${esc(w.name)}</b></td><td>${esc(w.device)}</td><td><span class="state"><span class="dot" style="background:${st[0]}"></span>${st[1]}</span></td><td class="num">${fmt(w.units)}</td><td class="num">${fmt(w.chains)}</td><td class="num">${(w.rate * 60).toFixed(1)}</td><td class="num">${fmt(w.rejected)}</td></tr>`;
-    }).join('') + '</tbody>' : '<tbody><tr><td class="empty">No computers yet. Start one with the command below.</td></tr></tbody>';
-  const host = location.hostname === 'localhost' || location.hostname === '127.0.0.1' ? '<this computer\'s address>' : location.hostname;
-  $('cmd').textContent = `python contribute.py --server http://${host}:${location.port || 80} --token ${S.token || '<token from the person running the coordinator>'}`;
-  $('cmd-note').textContent = S.token ? 'The token is shown here because you opened this page on the coordinator itself. Share it only with computers you trust: it lets them download the training data and send updates.' : '';
+    }).join('') + '</tbody>' : '<tbody><tr><td class="empty">No computers yet. Add one with the link below.</td></tr></tbody>';
+  $('cmd').textContent = S.join || 'Ask the person running the coordinator for the join link.';
+  $('cmd-note').textContent = S.join ? 'The link is shown here because you opened this page on the coordinator itself. Share it only with computers you trust: it lets them download the training data and send updates.' : '';
   drawLoss(S); drawVal(S);
 }
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }

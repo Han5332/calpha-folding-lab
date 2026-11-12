@@ -132,7 +132,7 @@ def main():
             print(f'cannot reach {a.server} ({e}); trying again in {wait} s', flush=True)
             time.sleep(wait); wait = min(wait * 2, 60)
     cl.worker, cfg = j['worker'], j['config']
-    net = E.Net(cfg['c1'], cfg['c2']).to(dev)
+    net = E.Net(cfg['c1'], cfg['c2'], cfg.get('cycles', 3)).to(dev)
     print(f'joined as {a.name} on {device_label(dev, precision)}')
     lock, done, have_v, backoff = threading.Lock(), [0], None, 2
 

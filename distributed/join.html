@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Join the training</title>
+<style>
+:root { --bg: #f3f4f6; --panel: #ffffff; --sunken: #eef0f3; --ink: #0d1117; --ink-2: #4b5563; --line: #e4e7eb; --accent: #2b5fd9; --font: Arial, Helvetica, sans-serif; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0d1016; --panel: #151a22; --sunken: #1b212b; --ink: #e8ebf0; --ink-2: #aab2bf; --line: #262d38; --accent: #6d9bff; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--font); }
+main { max-width: 640px; margin: 0 auto; padding: 32px 16px 48px; }
+h1 { font-size: 22px; margin: 0 0 6px; }
+h2 { font-size: 15px; margin: 0 0 8px; }
+p { margin: 0 0 10px; color: var(--ink-2); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; margin-top: 14px; }
+.btn { display: inline-block; background: var(--accent); color: #fff; text-decoration: none; font-weight: 700; border-radius: 8px; padding: 10px 18px; margin: 4px 0 12px; }
+ol { margin: 0; padding-left: 20px; color: var(--ink-2); }
+li { margin-bottom: 6px; }
+pre { margin: 0; padding: 10px 12px; background: var(--sunken); border-radius: 8px; font: 12.5px/1.5 ui-monospace, Menlo, Consolas, monospace; color: var(--ink); white-space: pre-wrap; word-break: break-all; }
+a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Join the training</h1>
+  <p>This computer will train the Folding Lab's network together with the one that sent you this link. It needs to stay on the same network as that computer.</p>
+
+  <div class="card">
+    <h2>Windows</h2>
+    <a class="btn" href="/join/train.bat?token={TOKEN}" download="train.bat">Download train.bat</a>
+    <ol>
+      <li>Keep the file if the browser asks, then double-click it.</li>
+      <li>If Windows says it protected your PC, choose <b>More info</b>, then <b>Run anyway</b>.</li>
+      <li>The first start installs Python packages (about 3 GB for PyTorch). Training has begun when the window says <b>joined as … on cuda: NVIDIA …</b> and starts counting units.</li>
+    </ol>
+    <p style="margin:10px 0 0">Close the window to stop. Double-click the file again to carry on. Keep the laptop plugged in and set it not to sleep.</p>
+  </div>
+
+  <div class="card">
+    <h2>Mac or Linux</h2>
+    <p>With Python 3, numpy and PyTorch installed, paste this into a terminal:</p>
+    <pre>mkdir -p ~/folding-lab-train && cd ~/folding-lab-train && curl -fsS -o contribute.py "{SERVER}/join/contribute.py?token={TOKEN}" && curl -fsS -o evonet.py "{SERVER}/join/evonet.py?token={TOKEN}" && python3 contribute.py --server {SERVER} --token {TOKEN} --chains 32</pre>
+  </div>
+
+  <p style="margin-top:14px">Progress, and whether the model is getting better, shows on the <a href="/">dashboard</a>.</p>
+</main>
+</body>
+</html>
