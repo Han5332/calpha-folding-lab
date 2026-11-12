@@ -143,13 +143,11 @@ class Coordinator:
         json.dump(s.state, open(tmp, 'w'))
         os.replace(tmp, os.path.join(s.a.out, 'state.json'))
 
-    def _weights_bytes(s, dtype=np.float32):
-        """The current weights as .npz bytes. Contributors get float16: half the download over Wi-Fi, and they compute
-        in bf16 or turn the weights back into float32 anyway. Checkpoints stay float32."""
+    def _weights_bytes(s):
         v, data = s.weights_cache
-        if v != (s.state['version'], dtype):
-            data = E.to_npz({k: t.detach().cpu().numpy() for k, t in s.net.state_dict().items()}, dtype)
-            s.weights_cache = ((s.state['version'], dtype), data)
+        if v != s.state['version']:
+            data = E.to_npz({k: t.detach().cpu().numpy() for k, t in s.net.state_dict().items()})
+            s.weights_cache = (s.state['version'], data)
         return data
 
     # ---- work units ----
@@ -364,7 +362,7 @@ def make_handler(C):
             elif u.path == '/api/weights':
                 if self._worker():
                     with C.lock:
-                        data, v = C._weights_bytes(np.float16), C.state['version']
+                        data, v = C._weights_bytes(), C.state['version']
                     self.send_response(200)
                     self.send_header('Content-Type', 'application/octet-stream')
                     self.send_header('Content-Length', str(len(data)))
