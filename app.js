@@ -1608,16 +1608,41 @@
 
   // ---------- controls ----------
   const PDB_ID = /^[1-9][A-Z0-9]{3}$/;   // a four-character PDB entry code
+  // more proteins: well-known PDB entries in a fold-out list, fetched from RCSB the first time one is picked
+  const CATALOG = [['1QYS', 'Top7', 'designed, a fold not seen in nature'], ['1EMA', 'Green fluorescent protein', 'β-barrel'], ['1MBN', 'Myoglobin', 'all-α, globin'],
+    ['1TIM', 'Triosephosphate isomerase', 'TIM barrel'], ['1CRN', 'Crambin', 'α/β, plant seed'], ['1BPI', 'BPTI', 'α/β, three disulfides'],
+    ['1HRC', 'Cytochrome c', 'all-α, heme'], ['1LYZ', 'Hen egg-white lysozyme', 'α + β'], ['1SHG', 'SH3 domain', 'β-barrel'],
+    ['1TEN', 'Tenascin FN3 domain', 'β-sandwich'], ['1TIT', 'Titin I27', 'Ig β-sandwich'], ['2A3D', 'α3D', 'designed three-helix bundle'],
+    ['1BDD', 'Protein A, B domain', 'three-helix'], ['1PRB', 'Albumin-binding domain', 'three-helix'], ['2PTL', 'Protein L', 'α/β'],
+    ['2CI2', 'Chymotrypsin inhibitor 2', 'α/β'], ['1BNI', 'Barnase', 'α + β, ribonuclease'], ['2RN2', 'Ribonuclease H', 'α/β'],
+    ['1CSP', 'Cold shock protein', 'β-barrel'], ['1FSD', 'FSD-1', 'designed ββα'], ['1ZNF', 'Zinc finger', 'ββα'],
+    ['1CLB', 'Calbindin D9k', 'EF-hand'], ['2HHB', 'Hemoglobin, α chain', 'all-α, globin']].map(([id, name, fold]) => ({ id, name, fold, stub: true }));
+  async function loadCatalog(c) {
+    const res = await fetch(`https://files.rcsb.org/download/${c.id}.pdb`);
+    if (!res.ok) throw new Error(`The PDB returned ${res.status} for ${c.id}.`);
+    const t = prepTarget(Object.assign(parseStructure(await res.text(), c.id + '.pdb'), { id: c.id, name: c.name, fold: c.fold, method: 'RCSB PDB' }));
+    CATALOG[CATALOG.indexOf(c)] = t;
+    return t;
+  }
   function renderProteins() {
-    const list = $('plist'), items = BUILTIN.slice();
-    if (!BUILTIN.includes(state.target)) items.push(state.target);
-    list.innerHTML = items.map((p, k) => {
-      const last = state.history.find(h => h.id === p.id && h.n === p.seq.length && h.method === state.method);
-      const meta = [p.seq.length + ' aa', p.fold].filter(Boolean).join(' · ') + (last && last.rmsd != null ? ` · last ${last.rmsd.toFixed(1)} Å` : '');
+    const extra = BUILTIN.includes(state.target) || CATALOG.includes(state.target) ? [] : [state.target];
+    const items = BUILTIN.concat(extra, CATALOG), cut = BUILTIN.length + extra.length;
+    const html = items.map((p, k) => {
+      const pic = PDB_ID.test(p.id) ? `<img src="https://cdn.rcsb.org/images/structures/${p.id.toLowerCase()}_model-1.jpeg" alt="" loading="lazy" onerror="this.hidden=true">` : '';
+      const last = p.seq && state.history.find(h => h.id === p.id && h.n === p.seq.length && h.method === state.method);
+      const meta = [p.seq ? p.seq.length + ' aa' : null, p.fold].filter(Boolean).join(' · ') + (last && last.rmsd != null ? ` · last ${last.rmsd.toFixed(1)} Å` : '');
       const link = PDB_ID.test(p.id) ? `<a class="plink" href="https://www.rcsb.org/structure/${p.id}" target="_blank" rel="noopener" title="Open ${esc(p.id)} on the RCSB Protein Data Bank" aria-label="Open ${esc(p.id)} on the RCSB Protein Data Bank"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5H3.5v9h9V10M9 3.5h3.5V7M12.5 3.5 7 9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></a>` : '';
-      return `<div class="pitem"><button type="button" class="prot${link ? ' haslink' : ''}" role="radio" aria-checked="${p === state.target}" data-k="${k}"><span class="pid">${esc(p.id)}</span><span class="pname">${esc(p.name)}</span><span class="pmeta">${esc(meta)}</span></button>${link}</div>`;
-    }).join('');
-    list.querySelectorAll('.prot').forEach(b => b.addEventListener('click', () => { state.queue = []; selectTarget(items[+b.dataset.k]); startRun(); }));
+      return `<div class="pitem"><button type="button" class="prot${link ? ' haslink' : ''}${pic ? ' pic' : ''}" role="radio" aria-checked="${p === state.target}" data-k="${k}">${pic}<span class="pid">${esc(p.id)}</span><span class="pname">${esc(p.name)}</span><span class="pmeta">${esc(meta)}</span></button>${link}</div>`;
+    });
+    $('plist').innerHTML = html.slice(0, cut).join('');
+    $('morelist').innerHTML = html.slice(cut).join('');
+    document.querySelectorAll('#plist .prot, #morelist .prot').forEach(b => b.addEventListener('click', () => {
+      const p = items[+b.dataset.k], msg = $('load-msg');
+      if (!p.stub) { state.queue = []; selectTarget(p); startRun(); return; }
+      b.querySelector('.pmeta').textContent = 'Loading from the PDB…';
+      loadCatalog(p).then(t => { msg.textContent = ''; state.queue = []; selectTarget(t); startRun(); })
+        .catch(err => { msg.classList.toggle('err', true); msg.textContent = `${err.message} Check the connection and try again.`; renderProteins(); });
+    }));
   }
   // Gō needs a PDB structure; methods other than knowledge-based and MSA + AI keep per-pair arrays, so stop at F.LEAN_N
   const methodOk = (k, t) => !(k === 'go' && !t.X) && (k === 'kb' || k === 'evo' || t.seq.length <= F.LEAN_N);
@@ -1744,7 +1769,7 @@
     document.querySelectorAll('#layout-seg button').forEach(b => { b.setAttribute('aria-pressed', String(b.dataset.v === state.view.layout)); b.disabled = !t.X && b.dataset.v === 'side'; });
     $('show-pdb').disabled = !t.X;
     const mname = METHODS[state.method].name;
-    $('crumb').innerHTML = `<b>${esc(t.name)}</b> · ${esc(mname)}${state.method !== 'go' ? ` · ${state.ssSource === 'real' ? 'SS from PDB record' : 'blind'}` : ''} · ${run ? run.R : state.replicas} replicas`;
+    $('crumb').innerHTML = `${esc(t.name)}<span>${esc(mname)}${state.method !== 'go' ? ` · ${state.ssSource === 'real' ? 'SS from PDB record' : 'blind'}` : ''} · ${run ? run.R : state.replicas} replicas</span>`;
     const btn = $('run');
     btn.textContent = !run ? 'Fold' : run.status === 'running' ? 'Pause' : run.status === 'paused' ? 'Resume' : run.status === 'done' ? 'Fold again' : 'Fold';
     $('run-all').textContent = state.queue.length ? `Stop after this run (${state.queue.length} left)` : `Run all ${BUILTIN.length === 10 ? 'ten' : BUILTIN.length}`;
@@ -1903,6 +1928,11 @@
       selectTarget(prepTarget({ id: 'SEQ', name: 'Custom sequence', fold: '', method: 'no structure', seq, ss: null, ca: null, first: 1 }));
       startRun();
     });
+    // protein pictures: on unless the viewer turned them off
+    try { $('pics').checked = localStorage.getItem('fold-pics') !== '0'; } catch {}
+    const setPics = () => ['plist', 'morelist'].forEach(id => $(id).classList.toggle('nopics', !$('pics').checked));
+    setPics();
+    $('pics').addEventListener('change', () => { setPics(); try { localStorage.setItem('fold-pics', $('pics').checked ? '1' : '0'); } catch {} });
     $('pdb-file').addEventListener('change', e => {
       const file = e.target.files[0];
       if (!file) return;

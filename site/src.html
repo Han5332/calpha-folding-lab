@@ -1,212 +1,200 @@
 <title>Scroll to Fold</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <style>
-@import url("https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap");
-/* Layout: a design-tool file. The protein is the selected layer on an infinite dotted canvas; floating panels
-   (layers = folding stages, design = live measurements) slide in as it folds, and a floating toolbar plays the run. */
+/* Layout: one calm page. The protein folds on a plain canvas as you scroll; the stage list (left) and live
+   measurements (right) arrive once the fold starts, and a small floating toolbar plays the run. */
 :root {
-  --canvas: #0b0f14; --dot: #121922; --panel: #11161d; --field: #182029; --ink: #ece8e1; --ink-2: #a7adb5; --muted: #6c747f;
-  --line: #222b35; --select: #ff4655; --select-soft: #2a151a; --select-ink: #ffffff; --native: #4f5a66; --accent: var(--select);
-  --c1: #ff4655; --c2: #ff7a45; --c3: #4f6bd8; --c4: #f2b84b; --c5: #3fd0b5;
-  --m1: #4f6bd8; --m2: #2aa7c0; --m3: #3fd0b5; --m4: #d6b46a; --m5: #ff4655;   /* chain, N → C */
-  --helix: #ff5a66; --strand: #f2b84b; --coil: #2a333d;
-  --shadow: 0 0 0 1px var(--line), 0 18px 40px -12px rgba(0,0,0,.55);
-  --font: Inter, Arial, Helvetica, sans-serif;
-  --font-display: "Barlow Condensed", "Arial Narrow", Arial, sans-serif;   /* headings and big numbers */
-  --bar: 52px; --r-panel: 2px; --r-ctl: 2px; --h-ctl: 34px;   /* one radius per role, one control height */
-  --cut: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));   /* chamfered corners */
-  color-scheme: dark;
+  --canvas: #ffffff; --tile: #f5f5f7; --panel: #ffffff; --ink: #1d1d1f; --ink-2: #424245; --muted: #6e6e73;
+  --line: #d2d2d7; --select: #0071e3; --link: #0066cc; --select-soft: #e8f2fd; --native: #aeaeb2;
+  --m1: #0a84ff; --m2: #5e5ce6; --m3: #bf5af2; --m4: #ff375f; --m5: #ff9f0a;   /* chain, N → C */
+  --helix: #ff375f; --strand: #ff9f0a; --coil: #d2d2d7; --good: #34c759; --warn: #ff9f0a; --bad: #ff453a;
+  --c1: #0066cc; --c2: #5246d8; --c3: #9a35c4; --c4: #c92a52;   /* eyebrow text, one per step, along the chain's colours */
+  --grad: linear-gradient(90deg, var(--m1), var(--m2), var(--m3), var(--m4), var(--m5));   /* the site's thread: the chain, N → C */
+  --nav: rgba(255,255,255,.76); --glass: rgba(255,255,255,.78);
+  --field: color-mix(in srgb, var(--ink) 6%, transparent);
+  --shadow: 0 0 0 .5px color-mix(in srgb, var(--ink) 12%, transparent), 0 14px 36px -14px rgba(0,0,0,.22);
+  --font: system-ui, -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --bar: 48px; --r-panel: 22px; --r-ctl: 12px; --pill: 980px;
+  color-scheme: light;
 }
-:root[data-theme="light"] {
-  --canvas: #ece8e1; --dot: #e2ddd4; --panel: #f6f3ee; --field: #e7e2da; --ink: #0f1923; --ink-2: #3d4651; --muted: #7a8088;
-  --line: #d3ccc1; --select: #e8384a; --select-soft: #f6dcdc; --native: #b4ada3;
-  --m1: #3049b8; --m2: #12839a; --m3: #129a83; --m4: #a9802c; --m5: #e2303f; --helix: #d93a4a; --strand: #c98a1a; --coil: #d3ccc1;
-  --shadow: 0 0 0 1px var(--line), 0 14px 30px -14px rgba(15,25,35,.25); color-scheme: light;
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --canvas: #000000; --tile: #1d1d1f; --panel: #1c1c1e; --ink: #f5f5f7; --ink-2: #c7c7cc; --muted: #86868b;
+  --line: #424245; --link: #2997ff; --select-soft: #0f2a47; --native: #636366; --coil: #3a3a3c; --good: #30d158;
+  --c1: #2997ff; --c2: #8482ff; --c3: #da8fff; --c4: #ff6482;
+  --nav: rgba(22,22,23,.8); --glass: rgba(44,44,46,.72); color-scheme: dark;
+} }
+:root[data-theme="dark"] {
+  --canvas: #000000; --tile: #1d1d1f; --panel: #1c1c1e; --ink: #f5f5f7; --ink-2: #c7c7cc; --muted: #86868b;
+  --line: #424245; --link: #2997ff; --select-soft: #0f2a47; --native: #636366; --coil: #3a3a3c; --good: #30d158;
+  --c1: #2997ff; --c2: #8482ff; --c3: #da8fff; --c4: #ff6482;
+  --nav: rgba(22,22,23,.8); --glass: rgba(44,44,46,.72); color-scheme: dark;
 }
 @view-transition { navigation: auto; }   /* start page ⇄ lab: one site, a cross-fade between pages */
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-body { margin: 0; background-color: var(--canvas); color: var(--ink); font: 14px/1.5 var(--font); -webkit-font-smoothing: antialiased;
-  background-image: linear-gradient(var(--dot) 1px, transparent 1px), linear-gradient(90deg, var(--dot) 1px, transparent 1px); background-size: 48px 48px; }
+body { margin: 0; background: var(--canvas); color: var(--ink); font: 17px/1.47 var(--font); letter-spacing: -.011em; -webkit-font-smoothing: antialiased; }
 a { color: inherit; }
-button { font: inherit; color: inherit; }
-.gut { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
-:focus-visible { outline: 2px solid var(--select); outline-offset: 2px; }
+button { font: inherit; color: inherit; letter-spacing: inherit; }
+.gut { padding-left: max(22px, env(safe-area-inset-left, 0px)); padding-right: max(22px, env(safe-area-inset-right, 0px)); }
+:focus-visible { outline: 2px solid var(--select); outline-offset: 3px; }
 
 /* ---- top bar: the same bar and section tabs as the lab ---- */
-.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 30; height: var(--bar); background: color-mix(in srgb, var(--canvas) 88%, transparent);
-  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); view-transition-name: topbar;
-  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 12px; }
-.brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; font-size: 12px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; white-space: nowrap; justify-self: start; color: var(--ink); }
-.brand svg { width: 26px; height: 26px; flex: none; }
-.brand i { font-style: normal; color: var(--select); letter-spacing: .04em; text-transform: none; }   /* keep α lower-case */
-.navtabs { display: flex; gap: 2px; height: var(--bar); }
-.navtabs a { position: relative; display: inline-flex; align-items: center; padding: 0 14px; font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); text-decoration: none; white-space: nowrap; }
-.navtabs a:hover { color: var(--ink); }
-.navtabs a.on { color: var(--ink); }
-.navtabs a.on::after { content: ""; position: absolute; left: 14px; right: 14px; bottom: -1px; height: 2px; background: var(--select); }
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 30; height: var(--bar); background: var(--nav);
+  backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-bottom: .5px solid color-mix(in srgb, var(--ink) 14%, transparent);
+  view-transition-name: topbar; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 12px; }
+.brand { display: inline-flex; align-items: center; gap: 8px; justify-self: start; color: var(--ink); text-decoration: none; }
+.brand b { font-size: 17px; font-weight: 600; letter-spacing: -.02em; white-space: nowrap; }
+.brand svg { width: 20px; height: 20px; flex: none; }
+.navtabs { display: flex; gap: 4px; }
+.navtabs a { padding: 6px 12px; border-radius: var(--pill); font-size: 12px; letter-spacing: -.005em; color: var(--ink); opacity: .8; text-decoration: none; white-space: nowrap; transition: opacity .2s; }
+.navtabs a:hover, .navtabs a.on { opacity: 1; }
+.navtabs a.on { font-weight: 600; }
+@media (max-width: 900px) { .navtabs a.opt { display: none; } }
+@media (max-width: 640px) { .bar { grid-template-columns: auto auto minmax(0, 1fr); gap: 6px; padding-inline: 16px; } .navtabs a { padding: 6px 8px; } }
+@media (max-width: 480px) { .brand b { display: none; } }
+/* the thread under the bar fills as the page scrolls */
+@supports (animation-timeline: scroll()) {
+  .bar::after { content: ""; position: absolute; left: 0; right: 0; bottom: -2px; height: 2px; background: var(--grad); clip-path: inset(0 100% 0 0); animation: thread linear both; animation-timeline: scroll(root); }
+  @keyframes thread { to { clip-path: inset(0); } }
+}
 .bar > .btn { justify-self: end; }
-.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: var(--h-ctl); padding: 0 18px; border: 0; font: 700 11px var(--font); letter-spacing: .14em; text-transform: uppercase;
-  text-decoration: none; white-space: nowrap; cursor: pointer; background: var(--select); color: var(--select-ink); clip-path: var(--cut); transition: filter .15s; }
-.btn:hover { filter: brightness(1.12); }
-.btn svg { flex: none; }
-.btn.line { background: transparent; color: var(--ink); clip-path: none; box-shadow: inset 0 0 0 1px var(--line); }
-.btn.line:hover { box-shadow: inset 0 0 0 1px var(--ink-2); filter: none; }
+.btn { display: inline-flex; align-items: center; justify-content: center; height: 30px; padding: 0 14px; border: 0; border-radius: var(--pill); font: 400 13px var(--font); letter-spacing: -.01em;
+  text-decoration: none; white-space: nowrap; cursor: pointer; background: var(--select); color: #fff; transition: background .2s; }
+.btn:hover { background: #0077ed; }
+.btn.big { height: 44px; padding: 0 22px; font-size: 17px; }
+.more { color: var(--link); text-decoration: none; font-size: 17px; }
+.more:hover { text-decoration: underline; }
+.more::after { content: " ›"; }
 
 /* ---- the folding stage ---- */
 .story { position: relative; height: 380vh; }
 .stick { position: sticky; top: calc(var(--bar) + env(safe-area-inset-top, 0px)); height: calc(100vh - var(--bar)); height: calc(100dvh - var(--bar) - env(safe-area-inset-top, 0px)); overflow: hidden; }
 #cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.float { position: absolute; background: color-mix(in srgb, var(--panel) 92%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-radius: var(--r-panel); box-shadow: var(--shadow); z-index: 3; }
-.float.panel::before { content: ""; position: absolute; left: -1px; top: -1px; width: 12px; height: 12px; border-left: 2px solid var(--select); border-top: 2px solid var(--select); pointer-events: none; }
+.float { position: absolute; background: var(--glass); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-radius: var(--r-panel); box-shadow: var(--shadow); z-index: 3; }
 .fade { opacity: 0; pointer-events: none; will-change: opacity, transform; }
 .fade.live { pointer-events: auto; }
 
-.panel { top: 12px; bottom: 76px; width: 244px; overflow: auto; padding: 6px 0 12px; }
-.panel.left { left: 12px; }
-.panel.right { right: 12px; width: 236px; }
-.tabs { display: flex; gap: 2px; padding: 4px 10px 8px; border-bottom: 1px solid var(--line); }
-.tabs span { font-size: 10.5px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; padding: 5px 2px; color: var(--muted); }
-.tabs span.on { color: var(--ink); }
-.sec { padding: 8px 12px 4px; }
-.sec + .sec { border-top: 1px solid var(--line); }
-.sh { font-size: 10.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-2); margin: 2px 0 8px; display: flex; justify-content: space-between; }
-.sh small { font-weight: 400; color: var(--muted); letter-spacing: .04em; text-transform: none; }
+/* stages: a plain list on the canvas; the stage you are in is large, with its sentence under it */
+.panel.left { position: absolute; z-index: 3; left: max(28px, env(safe-area-inset-left, 0px)); top: 50%; translate: 0 -54%; width: 262px; }
+.tree { list-style: none; margin: 0; padding: 0; }
+.tree .row { font-size: 17px; font-weight: 600; letter-spacing: -.015em; line-height: 1.2; padding: 7px 0; color: var(--muted); transition: font-size .25s, color .25s; }
+.tree .done .row { color: color-mix(in srgb, var(--muted) 55%, transparent); }
+.tree p { display: none; margin: 0 0 12px; font-size: 14px; line-height: 1.42; color: var(--ink-2); }
+.tree .on .row { font-size: 28px; letter-spacing: -.02em; color: var(--ink); padding: 10px 0 6px; }
+.tree .on p { display: block; }
+.track { height: 3px; border-radius: 2px; background: var(--field); overflow: hidden; margin: 14px 0 0; }
+.track i { display: block; height: 100%; width: 0; border-radius: 2px; background: var(--grad) 0 0 / 262px 100%; }
 
-.tree { list-style: none; margin: 0; padding: 4px 6px; }
-.tree li { border-radius: var(--r-ctl); font-size: 12px; color: var(--ink-2); }
-.tree .row { display: flex; align-items: center; gap: 7px; min-height: 28px; padding: 0 8px; }
-.tree .frame .row { color: var(--ink); font-weight: 700; }
-.tree .kid .row { padding-left: 26px; }
-.tree svg { flex: none; color: var(--muted); }
-.tree .kid p { display: none; margin: 0 8px 8px 45px; font-size: 12px; line-height: 1.45; color: var(--ink-2); }
-.tree .kid.on { background: var(--select-soft); box-shadow: inset 2px 0 0 var(--select); }
-.tree .kid.on .row { color: var(--ink); font-weight: 700; }
-.tree .kid.on svg { color: var(--select); }
-.tree .kid.on p { display: block; }
-.tree .kid.done .row { color: var(--muted); }
-.track { height: 3px; border-radius: 2px; background: var(--line); overflow: hidden; margin: 6px 14px 0; }
-.track i { display: block; height: 100%; width: 0; background: var(--select); }
-
-.fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; }
-.fld { display: flex; align-items: baseline; gap: 6px; min-width: 0; background: var(--field); border-radius: var(--r-ctl); padding: 0 8px; height: 28px; align-items: center; font-size: 12px; cursor: help; }
-.fld span { color: var(--muted); white-space: nowrap; }
-.fld b { font-variant-numeric: tabular-nums; margin-left: auto; white-space: nowrap; }
-.fld b small { color: var(--muted); font-weight: 400; margin-left: 2px; }
+/* measurements: label over number */
+.panel.right { right: max(20px, env(safe-area-inset-right, 0px)); top: 20px; width: 248px; max-height: calc(100% - 104px); overflow: auto; padding: 6px 18px 12px; }
+.sec { padding: 12px 0 10px; }
+.sec + .sec { border-top: .5px solid var(--line); }
+.sh { font-size: 12px; font-weight: 600; color: var(--ink); margin: 0 0 6px; display: flex; justify-content: space-between; }
+.sh small { font-weight: 400; color: var(--muted); font-size: 12px; }
+.fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 12px; }
+.fld { min-width: 0; cursor: help; }
+.fld span { display: block; font-size: 12px; line-height: 1.3; color: var(--muted); white-space: nowrap; }
+.fld b { display: block; font-size: 19px; line-height: 1.25; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fld b small { color: var(--muted); font-weight: 400; font-size: 12px; letter-spacing: 0; margin-left: 3px; }
 .fld.wide { grid-column: 1 / -1; }
 .spark { width: 100%; height: 56px; display: block; }
-.ssrow { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 8px; align-items: center; font-size: 11px; color: var(--muted); margin: 4px 0; }
-.ss { height: 10px; display: flex; border-radius: 3px; overflow: hidden; }
+.ssrow { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 8px; align-items: center; font-size: 11px; color: var(--muted); margin: 5px 0; }
+.ss { height: 8px; display: flex; border-radius: 4px; overflow: hidden; }
 .ss i { flex: 1; }
-.kv { display: flex; gap: 12px; font-size: 11px; color: var(--muted); margin: 6px 0 4px; }
-.kv i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; vertical-align: 0; }
+.kv { display: flex; gap: 12px; font-size: 11px; color: var(--muted); margin: 8px 0 0; }
+.kv i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
 
-.tools { left: 50%; bottom: 14px; translate: -50% 0; display: flex; align-items: center; gap: 2px; padding: 4px; }
-.tool { width: var(--h-ctl); height: var(--h-ctl); border-radius: var(--r-ctl); border: 0; background: transparent; display: grid; place-items: center; cursor: pointer; color: var(--ink); }
+.tools { left: 50%; bottom: 18px; translate: -50% 0; display: flex; align-items: center; gap: 4px; padding: 6px; border-radius: var(--pill); }
+.tool { width: 36px; height: 36px; border-radius: 50%; border: 0; background: transparent; display: grid; place-items: center; cursor: pointer; color: var(--ink); transition: background .15s; }
 .tool:hover { background: var(--field); }
-.tool[aria-pressed="true"] { background: var(--select-soft); color: var(--select); }
-.tool.play { background: var(--select); color: var(--select-ink); }
-.tool.play:hover { filter: brightness(1.06); }
-.sep { width: 1px; height: 22px; background: var(--line); margin: 0 5px; }
-.readout { font-size: 12px; font-weight: 400; color: var(--ink-2); padding: 0 10px 0 4px; font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 118px; }
-.readout b { color: var(--ink); }
+.tool[aria-pressed="true"] { background: var(--field); color: var(--link); }
+.tool.play, .tool.play:hover { background: var(--select); color: #fff; }
+.sep { width: 1px; height: 20px; background: var(--line); margin: 0 4px; }
+.readout { font-size: 13px; color: var(--muted); padding: 0 14px 0 6px; font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 128px; }
+.readout b { color: var(--ink); font-weight: 600; }
 
-.cap { left: 50%; top: 12px; translate: -50% 0; width: max-content; max-width: min(520px, calc(100% - 24px)); padding: 0 12px; height: var(--h-ctl); align-items: center; font-size: 12px; line-height: 1.3; color: var(--ink-2); display: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cap b { color: var(--ink); }
+.cap { left: 50%; top: 14px; translate: -50% 0; width: max-content; max-width: min(520px, calc(100% - 24px)); padding: 0 16px; height: 36px; border-radius: var(--pill); align-items: center; font-size: 13px; line-height: 1.3; color: var(--ink-2); display: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cap b { color: var(--ink); font-weight: 600; }
 
-.tip { position: fixed; z-index: 50; max-width: 250px; padding: 8px 11px; border-radius: var(--r-ctl); background: #05080b; color: #d9d5ce; font-size: 12px; line-height: 1.45;
-  border: 1px solid #2c3640; border-left: 2px solid var(--select); box-shadow: 0 10px 28px rgba(0,0,0,.45); pointer-events: none; }
-.tip b { display: block; margin-bottom: 2px; color: #fff; letter-spacing: .04em; }
+.tip { position: fixed; z-index: 50; max-width: 260px; padding: 10px 13px; border-radius: 12px; background: rgba(29,29,31,.94); color: #d2d2d7; font-size: 13px; line-height: 1.4; letter-spacing: -.005em;
+  box-shadow: 0 10px 30px rgba(0,0,0,.25); pointer-events: none; }
+.tip b { display: block; margin-bottom: 2px; color: #fff; font-weight: 600; }
 [data-tip] { cursor: help; }
 .tool[data-tip] { cursor: pointer; }
 
-/* landing: headline centred over the faded protein, a scroll cue at the bottom; both fade as the fold starts */
-.hero { position: absolute; inset: 0 0 64px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 14px; padding-inline: 20px; z-index: 4; pointer-events: none; }
-.tag { font-size: 11px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; color: var(--ink-2); padding: 2px 0 2px 12px; border-left: 2px solid var(--select); }
-h1 { font-family: var(--font-display); font-size: clamp(56px, 10vw, 156px); line-height: .88; letter-spacing: .005em; text-transform: uppercase; margin: 4px 0 0; font-weight: 700; text-wrap: balance;
-  text-shadow: 0 0 2px var(--canvas), 0 0 18px var(--canvas), 0 0 36px var(--canvas); }
-.lede { font-size: clamp(15px, 1.6vw, 18px); color: var(--ink-2); max-width: 44ch; margin: 0; text-shadow: 0 0 2px var(--canvas), 0 0 14px var(--canvas); }
-.cta-row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 10px; pointer-events: auto; }
-.cta-row .btn { height: 42px; padding: 0 22px; }
-.cue { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; z-index: 4; height: var(--h-ctl); padding: 0 12px 0 16px;
-  font-size: 10.5px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: var(--ink-2); text-decoration: none; }
+/* landing: headline at the top, the protein below it; the headline leaves as the fold starts */
+.hero { position: absolute; left: 0; right: 0; top: 0; display: flex; flex-direction: column; align-items: center; text-align: center; padding: clamp(28px, 7vh, 76px) 22px 8px; z-index: 4; pointer-events: none; }
+.tag, .kick { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; font: 600 14px/1.3 var(--font); letter-spacing: -.01em; color: var(--muted); }
+.kick::before { content: ""; width: 24px; height: 2px; border-radius: 1px; background: var(--grad); flex: none; }
+h1 em { font-style: normal; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; padding: 0 .04em .12em; margin: 0 -.04em; }
+h1 { font-size: clamp(44px, 7.4vw, 96px); line-height: 1.04; letter-spacing: -.032em; font-weight: 600; margin: 0; text-wrap: balance; }
+.lede { font-size: clamp(19px, 2vw, 26px); line-height: 1.28; letter-spacing: -.016em; color: var(--muted); max-width: 30ch; margin: 14px 0 0; text-wrap: balance; }
+.cta-row { display: flex; gap: 22px; flex-wrap: wrap; align-items: center; justify-content: center; margin-top: 24px; pointer-events: auto; }
+.cue { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; z-index: 4; padding: 8px 12px;
+  font-size: 13px; color: var(--muted); text-decoration: none; }
 .cue:hover { color: var(--ink); }
-.cue svg { animation: bob 1.4s ease-in-out infinite; }
-@keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(6px); } }
-@media (prefers-reduced-motion: reduce) { .cue svg { animation: none; } }
+.cue svg { animation: bob 1.6s ease-in-out infinite; }
+@keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(4px); } }
+@media (prefers-reduced-motion: reduce) { .cue svg { animation: none; } .tree .row { transition: none; } }
 
 /* ---- sections below ---- */
-section.band { padding-block: 56px; }
-.wrap { max-width: 1120px; margin: 0 auto; }
-.kick { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; color: var(--ink-2); padding: 2px 0 2px 12px; border-left: 2px solid var(--select); margin: 0 0 14px; }
-h2 { font-family: var(--font-display); font-size: clamp(36px, 5.2vw, 64px); line-height: .92; letter-spacing: .005em; text-transform: uppercase; font-weight: 700; margin: 0 0 14px; text-wrap: balance; }
-.sub { color: var(--ink-2); max-width: 58ch; margin: 0 0 24px; font-size: 15px; }
-.flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; }
-.fr { min-width: 0; }
-.fr .fl { font-size: 10.5px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px 2px; }
-.fr .fb { background: var(--panel); border-radius: var(--r-panel); box-shadow: var(--shadow); border-top: 2px solid var(--fc, var(--select)); padding: 18px; display: grid; gap: 8px; align-content: start; height: calc(100% - 24px); }
-.fr .big { font-family: var(--font-display); font-size: 44px; line-height: 1; font-weight: 600; letter-spacing: 0; font-variant-numeric: tabular-nums; }
-.fr h3 { margin: 0; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; }
-.fr p { margin: 0; font-size: 13.5px; color: var(--ink-2); }
-.chip { justify-self: start; font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; padding: 3px 8px; border-radius: var(--r-ctl); color: #fff; }
+section.band { padding-block: clamp(64px, 10vw, 120px); }
+.wrap { max-width: 1040px; margin: 0 auto; }
+h2 { font-size: clamp(32px, 5vw, 56px); line-height: 1.07; letter-spacing: -.026em; font-weight: 600; margin: 0 0 16px; text-wrap: balance; }
+.sub { color: var(--muted); max-width: 54ch; margin: 0 0 44px; font-size: clamp(17px, 1.8vw, 21px); line-height: 1.38; letter-spacing: -.014em; }
+.flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.fr { min-width: 0; background: var(--tile); border-radius: var(--r-panel); padding: 26px 24px 28px; display: grid; gap: 6px; align-content: start; }
+.fr .fl { font-size: 14px; font-weight: 600; letter-spacing: -.01em; }
+.fr .big { font-size: 48px; line-height: 1.08; font-weight: 600; letter-spacing: -.03em; font-variant-numeric: tabular-nums; margin-top: 18px; }
+.fr h3 { margin: 0; font-size: 19px; line-height: 1.25; font-weight: 600; letter-spacing: -.018em; }
+.fr p { margin: 6px 0 0; font-size: 14px; line-height: 1.45; color: var(--muted); }
 
-.bench { background: var(--panel); border-radius: var(--r-panel); box-shadow: var(--shadow); padding: 6px 0; overflow-x: auto; }
-.brow { display: grid; grid-template-columns: minmax(150px, 1.3fr) 54px minmax(160px, 2fr) 92px; gap: 14px; align-items: center; padding: 9px 18px; font-size: 13.5px; min-width: 520px; }
-.brow + .brow { border-top: 1px solid var(--line); }
-.brow.head { font-size: 10.5px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.bench { background: var(--tile); border-radius: var(--r-panel); padding: 10px 10px 14px; overflow-x: auto; }
+.brow { display: grid; grid-template-columns: minmax(150px, 1.3fr) 70px minmax(160px, 2fr) 96px; gap: 16px; align-items: center; padding: 12px 16px; font-size: 15px; min-width: 520px; }
+.brow + .brow { border-top: .5px solid var(--line); }
+.brow.head, .brow:last-child { border-top: 0; }
+.brow.head { font-size: 12px; color: var(--muted); }
+.brow b { font-weight: 600; }
 .brow .num { text-align: right; font-variant-numeric: tabular-nums; }
 .brow .muted { color: var(--muted); }
-.bar-t { position: relative; height: 6px; background: var(--field); }
-.bar-t i { position: absolute; left: 0; top: 0; bottom: 0; }
+.bar-t { position: relative; height: 6px; border-radius: 3px; background: var(--field); overflow: hidden; }
+.bar-t i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; }
 .scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.note { font-size: 13px; color: var(--muted); margin: 14px 0 0; max-width: 72ch; }
-.cta { background: var(--panel); color: var(--ink); border-radius: var(--r-panel); box-shadow: var(--shadow); border-left: 3px solid var(--select); padding: 44px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: center; }
-.cta h2 { margin: 0 0 8px; }
-.cta p { margin: 0; color: var(--ink-2); max-width: 52ch; }
-.cta .btn { height: 44px; padding: 0 24px; }
-footer { padding-block: 24px 44px; font-size: 12.5px; color: var(--muted); }
+.note { font-size: 14px; line-height: 1.45; color: var(--muted); margin: 18px 0 0; max-width: 76ch; }
+.cta { background: var(--tile); border-radius: 28px; padding: clamp(40px, 8vw, 88px) 24px; display: grid; justify-items: center; text-align: center; gap: 0; }
+.cta h2 { margin: 0 0 12px; }
+.cta p { margin: 0 0 28px; color: var(--muted); max-width: 46ch; font-size: clamp(17px, 1.8vw, 21px); line-height: 1.38; }
+footer .wrap { border-top: .5px solid var(--line); padding-block: 18px 44px; font-size: 12px; line-height: 1.5; color: var(--muted); }
+footer b { color: var(--ink); font-weight: 600; }
 
-@media (max-width: 1080px) { .panel.left { display: none; } .cap { display: flex; } }
+@media (max-width: 1080px) { .panel.left { display: none; } .cap { display: flex; } .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 760px) {
-  .panel.right { top: auto; bottom: 56px; left: 10px; right: 10px; width: auto; padding: 6px 6px 4px; overflow: visible; display: flex; gap: 6px;
-    border-radius: var(--r-panel) var(--r-panel) 0 0; box-shadow: none; border: 1px solid var(--line); border-bottom: 0; }
-  .tools { left: 10px; right: 10px; bottom: 10px; translate: none; justify-content: space-around; border-radius: 0 0 var(--r-panel) var(--r-panel); box-shadow: none; border: 1px solid var(--line); border-top: 1px solid var(--line); height: 46px; }
-  .panel.right .tabs, .panel.right .only-wide, .panel.right .sh { display: none; }
+  /* one joined bar at the bottom: measurements on top, playback under them */
+  .panel.right { top: auto; bottom: 62px; left: 10px; right: 10px; width: auto; max-height: none; padding: 10px 16px 8px; overflow: visible; display: flex; gap: 12px; border-radius: 20px 20px 0 0; }
+  .tools { left: 10px; right: 10px; bottom: 10px; translate: none; justify-content: space-around; border-radius: 0 0 20px 20px; height: 52px; }
+  .panel.right .only-wide, .panel.right .sh { display: none; }
   .panel.right .sec { padding: 0; border: 0; flex: 1 1 0; min-width: 0; }
-  .panel.right .fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-  .panel.right .fld { flex-direction: column; align-items: flex-start; gap: 1px; padding: 5px 8px; height: auto; font-size: 11px; line-height: 1.2; }
-  .panel.right .fld b { margin-left: 0; font-size: 12.5px; }
-  .cap { white-space: normal; height: auto; padding: 7px 12px; }
+  .panel.right .fld.wide { grid-column: auto; }
+  .panel.right .fld span { font-size: 11px; }
+  .panel.right .fld b { font-size: 16px; }
+  .cap { display: block; white-space: normal; height: auto; padding: 8px 16px; border-radius: 18px; }
   .readout, .tools .sep { display: none; }
-  .navtabs { display: none; }
-  .bar { grid-template-columns: minmax(0, 1fr) auto; }
-  .bar > .btn { padding: 0 14px; }
-  .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .cta { grid-template-columns: minmax(0, 1fr); padding: 28px; }
 }
 @media (max-width: 460px) {
-  section.band { padding-block: 36px; }
-  h2 { font-size: 28px; }
-  .sub { font-size: 14px; margin-bottom: 18px; }
-  .flow { gap: 12px; }
-  .fr .fl { display: none; }
-  .fr .fb { grid-template-columns: auto minmax(0, 1fr); column-gap: 12px; row-gap: 2px; padding: 14px; height: auto; }
-  .fr .fb .chip { grid-column: 1 / -1; margin-bottom: 4px; }
-  .fr .fb .big { font-size: 26px; grid-row: span 2; align-self: center; }
-  .fr .fb h3 { font-size: 14px; align-self: end; }
-  .fr .fb p { font-size: 13px; }
-  .cta { padding: 22px; }
+  .flow { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .fr { padding: 22px 20px; }
+  .fr .big { font-size: 40px; margin-top: 10px; }
+  .brow { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 84px; min-width: 0; gap: 10px; padding: 11px 10px; font-size: 14px; }
+  .brow .size { display: none; }
 }
-@media (max-width: 420px) { .brand span { display: none; } }
-@media (max-width: 460px) { .tag { font-size: 9.5px; letter-spacing: .12em; white-space: nowrap; } }
-@media (max-width: 460px) { .flow { grid-template-columns: minmax(0, 1fr); } .brow { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 84px; min-width: 0; gap: 10px; padding: 9px 14px; } .brow .size { display: none; } }
+@media (max-height: 560px) { .lede { display: none; } h1 { font-size: clamp(32px, 9vh, 56px); } .hero { padding-top: 16px; } .cta-row { margin-top: 12px; } }
 </style>
 
 <header class="bar gut">
-  <a class="brand" href="#top"><svg viewBox="0 0 26 26" aria-hidden="true"><path d="M13 1.5 24.5 13 13 24.5 1.5 13z" fill="none" stroke="var(--accent)" stroke-width="1.6"/><path d="M7.5 15c2-5.5 4.2-5.5 5.2-2.2s3 3.3 5.8-2.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span><i>Cα</i> Folding Lab</span></a>
-  <nav class="navtabs" aria-label="Site"><a class="on" href="#top" aria-current="page">Start</a><a href="#how">How it works</a><a href="#results">Results</a><a href="LAB_URL">Lab</a></nav>
-  <a class="btn" href="LAB_URL">Jump to the lab<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 7h9M7.5 3.5 11 7l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"/></svg></a>
+  <a class="brand" href="#top"><svg viewBox="0 0 20 20" aria-hidden="true"><linearGradient id="thread" x1="0" x2="1" y1="0" y2="0"><stop offset="0" style="stop-color:var(--m1)"/><stop offset=".5" style="stop-color:var(--m3)"/><stop offset="1" style="stop-color:var(--m5)"/></linearGradient><path d="M3 13c2.2-7 4.6-7 5.8-2.6s3.4 4 6.2-3.4" fill="none" stroke="url(#thread)" stroke-width="2.2" stroke-linecap="round"/></svg><b>Folding Lab</b></a>
+  <nav class="navtabs" aria-label="Site"><a class="on" href="#top" aria-current="page">Start</a><a class="opt" href="#how">How it works</a><a class="opt" href="#results">Results</a><a href="LAB_URL">Lab</a></nav>
+  <a class="btn" href="LAB_URL">Jump to the lab</a>
 </header>
 
 <div class="story" id="story"><span id="top"></span>
@@ -214,26 +202,24 @@ footer { padding-block: 24px 44px; font-size: 12.5px; color: var(--muted); }
     <canvas id="cv" aria-label="Ubiquitin, a chain of 76 residues colored from first to last, folding as the page scrolls"></canvas>
 
     <div class="hero" id="hero">
-      <span class="tag">Ubiquitin · 76 amino acids · v8 network</span>
-      <h1>Watch it fold.</h1>
-      <div class="cta-row"><a class="btn" href="LAB_URL">Jump to the lab<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 7h9M7.5 3.5 11 7l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"/></svg></a></div>
+      <span class="tag">A protein folding lab by Han</span>
+      <h1>Watch a protein <em>fold.</em></h1>
+      <div class="cta-row"><a class="btn big" href="LAB_URL">Jump to the lab</a><a class="more" href="#how">How it works</a></div>
     </div>
     <a class="cue" id="cue" href="#how" aria-label="Scroll down to fold the protein"><span>Scroll to fold</span><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M4 7l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
 
-    <aside class="float panel left fade" id="left" aria-label="Folding stages">
-      <div class="tabs"><span class="on">Stages</span></div>
+    <aside class="panel left fade" id="left" aria-label="Folding stages">
       <ul class="tree" id="tree"></ul>
       <div class="track"><i id="track"></i></div>
     </aside>
 
     <aside class="float panel right fade" id="right" aria-label="Live measurements">
-      <div class="tabs"><span class="on">Telemetry</span></div>
       <div class="sec">
         <div class="sh" id="sh-sim">Simulation</div>
         <div class="fields">
-          <div class="fld"><span>Step</span><b id="p-step">0</b></div>
+          <div class="fld wide"><span>Step</span><b id="p-step">0</b></div>
           <div class="fld"><span>T</span><b id="p-t">2.00<small>kT</small></b></div>
-          <div class="fld wide only-wide"><span>Energy</span><b id="p-e">0<small>ε</small></b></div>
+          <div class="fld only-wide"><span>Energy</span><b id="p-e">0<small>ε</small></b></div>
         </div>
       </div>
       <div class="sec">
@@ -274,17 +260,17 @@ footer { padding-block: 24px 44px; font-size: 12.5px; color: var(--muted); }
 
 <section class="band gut" id="how">
   <div class="wrap">
-    <p class="kick">How it works</p>
-    <h2>How the fold is found</h2>
-    <p class="sub">The lab never sees the answer. It starts from the sequence and the protein's evolutionary relatives, and only compares with the PDB structure at the end.</p>
+    <p class="kick">01 / How it works</p>
+    <h2>It never peeks at the answer.</h2>
+    <p class="sub">The lab starts from the sequence and the protein's evolutionary relatives, and only compares with the PDB structure at the end.</p>
     <div class="flow" id="flow"></div>
   </div>
 </section>
 
 <section class="band gut" id="results" style="padding-top:0">
   <div class="wrap">
-    <p class="kick">Benchmark</p>
-    <h2>Ten proteins, three seeds each</h2>
+    <p class="kick">02 / Results</p>
+    <h2>Ten proteins. Honest numbers.</h2>
     <p class="sub">Distance from the real structure after folding with v8, averaged over three random seeds of 12 replicas. Lower is better; under about 3 Å the fold is essentially right.</p>
     <div class="bench" id="bench"></div>
     <p class="note">TM-score runs from 0 to 1, and above 0.5 usually means the same fold. It is harsh on very small peptides such as chignolin and Trp-cage, which can sit close in Å and still score low.</p>
@@ -295,15 +281,16 @@ footer { padding-block: 24px 44px; font-size: 12.5px; color: var(--muted); }
   <div class="wrap">
     <div class="cta">
       <div>
-        <h2>Fold one yourself</h2>
+        <p class="tag" style="justify-content:center">03 / The lab</p>
+        <h2>Fold one yourself.</h2>
         <p>The lab runs entirely in your browser: pick one of ten proteins, watch 12 replicas fold at once and compare the result with the experimental structure.</p>
       </div>
-      <a class="btn" href="LAB_URL">Jump to the lab<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 7h9M7.5 3.5 11 7l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"/></svg></a>
+      <a class="btn big" href="LAB_URL">Jump to the lab</a>
     </div>
   </div>
 </section>
 
-<footer class="gut"><div class="wrap">Structure 1UBQ from the RCSB Protein Data Bank. Alignment from ColabFold MMseqs2. The trajectory is one replica of a 1.2-million-step run (seed 202); the lab itself runs 12 and picks the consensus.</div></footer>
+<footer class="gut"><div class="wrap"><b>Designed and built by Han.</b> Structure 1UBQ from the RCSB Protein Data Bank. Alignment from ColabFold MMseqs2. The trajectory is one replica of a 1.2-million-step run (seed 202); the lab itself runs 12 and picks the consensus.</div></footer>
 
 <script>
 const DATA = /*DATA*/null;
@@ -329,10 +316,7 @@ const DATA = /*DATA*/null;
     { name: 'Folded', until: Infinity, short: `${D.final.rmsd.toFixed(1)} Å from the real structure (grey)`, text: `The last frame sits ${D.final.rmsd.toFixed(1)} Å from the experimental structure, shown in grey behind it (TM-score ${D.final.tm.toFixed(2)}).` },
   ];
   ST.forEach(st => { const k = F.findIndex(f => f[0] >= st.until); st.to = k < 0 ? 1 : k / (NF - 1); });
-  const frameIcon = '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3.5 1v10M8.5 1v10M1 3.5h10M1 8.5h10" stroke="currentColor" stroke-width="1.3"/></svg>';
-  const layerIcon = '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M1.5 9c1.4-4.5 2.8-4.5 3.6-1.6s2.2 2.4 3-1.2 1.6-2.4 2.4-2.4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
-  $('tree').innerHTML = `<li class="frame"><div class="row">${frameIcon}Ubiquitin · 1UBQ</div></li>` +
-    ST.map(s => `<li class="kid"><div class="row">${layerIcon}${s.name}</div><p>${s.text}</p></li>`).join('');
+  $('tree').innerHTML = ST.map(s => `<li class="kid"><div class="row">${s.name}</div><p>${s.text}</p></li>`).join('');
   const kids = [...$('tree').querySelectorAll('.kid')];
 
   const ssColor = c => (c === 'H' || c === 'G' ? 'var(--helix)' : c === 'E' ? 'var(--strand)' : 'var(--coil)');
@@ -341,16 +325,16 @@ const DATA = /*DATA*/null;
   const ssNow = [...$('ss-now').children];
 
   const FLOW = [
-    { label: 'Alignment', color: 'var(--c1)', chip: 'Evolution', big: '1,500', h: 'related sequences', p: 'Proteins that share ubiquitin\'s ancestry. Positions that mutate together are usually touching.' },
-    { label: 'Network', color: 'var(--c3)', chip: 'AI', big: '583k', h: 'trained weights', p: 'A convolutional network reads the alignment and predicts a distance histogram for every pair of residues.' },
-    { label: 'Restraints', color: 'var(--c4)', ink: '#10202b', chip: 'Physics', big: D.restraints.toLocaleString('en-US'), h: 'distance restraints', p: 'Each confident prediction becomes a spring-like energy term on top of a knowledge-based force field.' },
-    { label: 'Replicas', color: 'var(--c5)', ink: '#0c2219', chip: 'Search', big: '12', h: 'independent runs', p: 'Twelve copies fold in parallel. The answer is the lowest-energy cluster that most of them agree on.' },
+    { label: 'Alignment', color: 'var(--c1)', big: '1,500', h: 'related sequences', p: 'Proteins that share ubiquitin\'s ancestry. Positions that mutate together are usually touching.' },
+    { label: 'Network', color: 'var(--c2)', big: '583k', h: 'trained weights', p: 'A convolutional network reads the alignment and predicts a distance histogram for every pair of residues.' },
+    { label: 'Restraints', color: 'var(--c3)', big: D.restraints.toLocaleString('en-US'), h: 'distance restraints', p: 'Each confident prediction becomes a spring-like energy term on top of a knowledge-based force field.' },
+    { label: 'Replicas', color: 'var(--c4)', big: '12', h: 'independent runs', p: 'Twelve copies fold in parallel. The answer is the lowest-energy cluster that most of them agree on.' },
   ];
-  $('flow').innerHTML = FLOW.map((f, i) => `<div class="fr"><div class="fl">Step ${i + 1} · ${f.label}</div><div class="fb" style="--fc:${f.color}"><span class="chip" style="background:${f.color};color:${f.ink || '#fff'}">${f.chip}</span><div class="big">${f.big}</div><h3>${f.h}</h3><p>${f.p}</p></div></div>`).join('');
+  $('flow').innerHTML = FLOW.map((f, i) => `<div class="fr"><div class="fl" style="color:${f.color}">Step ${i + 1} · ${f.label}</div><div class="big">${f.big}</div><h3>${f.h}</h3><p>${f.p}</p></div>`).join('');
   const B = D.bench, maxA = 6;
   $('bench').innerHTML = `<div class="brow head"><span>Protein</span><span class="num size">Residues</span><span>RMSD to the real structure</span><span class="num">Å · TM</span></div>` +
     B.map(b => `<div class="brow"><span><b>${b.name}</b> <span class="muted">${b.id}</span></span><span class="num muted size">${b.n}</span>
-      <span><div class="bar-t"><i style="width:${(100 * Math.min(b.rmsd, maxA) / maxA).toFixed(1)}%;background:${b.rmsd <= 3 ? 'var(--c5)' : b.rmsd <= 4 ? 'var(--c4)' : 'var(--c2)'}"></i></div></span>
+      <span><div class="bar-t"><i style="width:${(100 * Math.min(b.rmsd, maxA) / maxA).toFixed(1)}%;background:${b.rmsd <= 3 ? 'var(--good)' : b.rmsd <= 4 ? 'var(--warn)' : 'var(--bad)'}"></i></div></span>
       <span class="num"><b>${b.rmsd.toFixed(1)}</b> · ${b.tm.toFixed(2)}</span></div>`).join('') +
     `<div class="brow" style="padding-top:2px"><span></span><span class="size"></span><div class="scale"><span>0 Å</span><span>2</span><span>4</span><span>6 Å</span></div><span></span></div>`;
 
@@ -366,7 +350,7 @@ const DATA = /*DATA*/null;
     'sh-sim': ['Simulation', 'Live state of the physics run: Langevin dynamics with simulated annealing, guided by the network’s distance predictions.'],
     'sh-struct': ['Structure vs PDB 1UBQ', 'How close this frame is to ubiquitin’s experimental structure from the Protein Data Bank. The simulation never sees it.'],
     'sh-rmsd': ['RMSD over the run', 'Blue: distance to the real structure up to this point. Grey: the rest of the run.'],
-    'sh-ss': ['Secondary structure', 'Helices (purple) and strands (green) in the current frame, against the experimental structure.'],
+    'sh-ss': ['Secondary structure', 'Helices and strands in the current frame, against the experimental structure.'],
     'readout': ['Progress', 'The step shown out of the run’s 1.2 million.'],
     'b-play': ['Play', 'Folds the protein for you by scrolling the page. Scroll yourself to take over.'],
     'b-back': ['Back to the start', 'Returns to the unfolded chain.'],
@@ -392,11 +376,11 @@ const DATA = /*DATA*/null;
     el.addEventListener('pointerup', e => { if (e.pointerType !== 'mouse' && !el.matches('button')) { tipFor === el ? hideTip() : show(); } });
   }
   addEventListener('scroll', () => { if (tipFor) hideTip(); }, { passive: true });
-  // the canvas: residue cursors and the size pill explain themselves too
+  // the canvas: residue labels and the size readout explain themselves too
   const CANVAS_TIPS = { Lys48: ['Lys48', 'Lysine 48. Chains of ubiquitin linked here mark a protein for destruction in the cell.'],
     Ile44: ['Ile44', 'Isoleucine 44, the centre of the hydrophobic patch that other proteins use to recognise ubiquitin.'],
     Gly76: ['Gly76', 'Glycine 76, the tail end. The cell attaches it to the proteins it tags.'],
-    pill: ['Radius of gyration', 'The size of the selected chain, in ångströms. It shrinks as the chain folds.'] };
+    pill: ['Radius of gyration', 'The size of the chain, in ångströms. It shrinks as the chain folds.'] };
   let hot = [];   // canvas hit areas for this frame: {x, y, w, h, key}
   function canvasTip(e) {
     const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
@@ -415,8 +399,8 @@ const DATA = /*DATA*/null;
     need = true; shown = -1;
   }
   const hex = c => { const v = css(c).replace('#', ''); return [0, 2, 4].map(k => parseInt(v.slice(k, k + 2), 16)); };
-  let PAL = [], CAN = [0, 0, 0], NAT = [0, 0, 0], SEL = '#0d99ff';
-  function palette() { PAL = ['--m1', '--m2', '--m3', '--m4', '--m5'].map(hex); CAN = hex('--canvas'); NAT = hex('--native'); SEL = css('--select'); need = true; shown = -1; }
+  let PAL = [], CAN = [0, 0, 0], NAT = [0, 0, 0], SEL = '#0071e3', INK = '#1d1d1f', MUTED = '#6e6e73', CANV = '#fff', TILE = '#f5f5f7';
+  function palette() { PAL = ['--m1', '--m2', '--m3', '--m4', '--m5'].map(hex); CAN = hex('--canvas'); NAT = hex('--native'); SEL = css('--select'); INK = css('--ink'); MUTED = css('--muted'); CANV = css('--canvas'); TILE = css('--tile'); need = true; shown = -1; }
   function colorAt(t, fog) {
     const u = t * (PAL.length - 1), k = Math.min(PAL.length - 2, Math.floor(u)), f = u - k, a = PAL[k], b = PAL[k + 1];
     return `rgb(${[0, 1, 2].map(j => { const v = a[j] + (b[j] - a[j]) * f; return Math.round(v + (CAN[j] - v) * fog); }).join(',')})`;
@@ -427,7 +411,7 @@ const DATA = /*DATA*/null;
     for (let i = 0; i < 3 * n; i++) pos[i] = (a[i] + (b[i] - a[i]) * f) / 100;
     return pos;
   }
-  const CURSORS = [{ i: 47, name: 'Lys48', c: '--c3' }, { i: 43, name: 'Ile44', c: '--c5', ink: '#0c2219' }, { i: 75, name: 'Gly76', c: '--c1' }];
+  const CURSORS = [{ i: 47, name: 'Lys48' }, { i: 43, name: 'Ile44' }, { i: 75, name: 'Gly76' }];
   const cur = CURSORS.map(() => ({ x: 0, y: 0, ok: false }));
   const INTRO = 0.07;   // share of the scroll spent on the landing and headline before the simulation starts
   let panX = 0, panY = 0, zoom = 0, prog = 0, shown = -1, spinOn = !reduce, ghostOn = true, angle = 0.6, last = performance.now(), panel = 0, hero = 1;
@@ -501,7 +485,7 @@ const DATA = /*DATA*/null;
     for (const [el, dx] of [[$('left'), -18], [$('right'), 18]]) { el.style.opacity = panel.toFixed(3); el.style.transform = `translateX(${(dx * (1 - panel)).toFixed(1)}px)`; el.classList.toggle('live', panel > 0.5); }
     const cap = $('cap'); cap.style.opacity = panel.toFixed(3); cap.classList.toggle('live', panel > 0.5);
     const tools = $('tools'); tools.style.opacity = panel.toFixed(3); tools.classList.toggle('live', panel > 0.5);
-    // landing: the headline sits over a faded protein; it fades out in the first few percent of the scroll
+    // landing: the headline sits above the protein; it fades out in the first few percent of the scroll
     const hv = 1 - ease(clamp((prog - 0.012) / 0.035, 0, 1));   // on screen at the start, gone before the fold begins
     hero += (hv - hero) * 0.25; if (Math.abs(hv - hero) > 0.002) need = true;
     $('hero').style.opacity = hero.toFixed(3); $('hero').style.visibility = hero < 0.02 ? 'hidden' : 'visible';
@@ -509,9 +493,9 @@ const DATA = /*DATA*/null;
     $('cue').style.opacity = cueA.toFixed(3); $('cue').style.visibility = cueA < 0.02 ? 'hidden' : 'visible';
     const lv = getComputedStyle($('left')).display !== 'none', narrow = W < 760;
     // keep the chain clear of whatever floats over the canvas: measured, so it holds at any size
-    const insL = lv ? 268 * panel : 0, insR = narrow ? 0 : 288 * panel;
-    const insB = narrow ? ($('right').offsetHeight + 6) * panel : 0, insT = !lv ? ($('cap').offsetHeight + 40) * panel : 0;
-    const insBar = 64 * panel;   // room for the toolbar once it is shown
+    const insL = lv ? 300 * panel : 0, insR = narrow ? 0 : 288 * panel;
+    const insB = narrow ? ($('right').offsetHeight + 6) * panel : 0, insT = (!lv ? ($('cap').offsetHeight + 40) * panel : 0) + $('hero').offsetHeight * hero;
+    const insBar = 64 * Math.max(panel, hero);   // room for the scroll cue, then the toolbar
     const freeW = W - insL - insR, freeH = H - insBar - insB - insT;
     const cx = insL + freeW / 2 - panX, cy = insT + freeH / 2 - panY;
     // zoom follows the chain's size, so the collapse reads as motion but nothing leaves the canvas
@@ -521,7 +505,6 @@ const DATA = /*DATA*/null;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
     const wb = clamp(zoom * 1.05, 4.5, 12);
     const showNative = ghostOn && panel > 0.05;
-    ctx.globalAlpha = 1 - 0.62 * hero;
     if (showNative) drawChain(projectN(spline(native), ang, tilt, zoom, cx, cy), wb * 0.62, true, 0.22 + 0.33 * clamp((fp - ST[3].to) / 0.1, 0, 1));
     const pts = projectN(spline(P), ang, tilt, zoom, cx, cy);
     drawChain(pts, wb, false);
@@ -534,27 +517,24 @@ const DATA = /*DATA*/null;
       if (Math.abs(ox) > 0.5 || Math.abs(oy) > 0.5) need = true; panX += ox * 0.08; panY += oy * 0.08; }
     const res = i => pts[i * SUB];
     ctx.globalAlpha = panel;
-    // the selected layer: blue box, white handles, frame name above, size pill below
-    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-    for (const p of pts) { x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y); }
-    x0 -= wb; y0 -= wb; x1 += wb; y1 += wb;
-    ctx.strokeStyle = SEL; ctx.lineWidth = 1.25; ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
-    for (const [hx, hy] of [[x0, y0], [x1, y0], [x0, y1], [x1, y1]]) { ctx.fillStyle = '#fff'; ctx.fillRect(hx - 4, hy - 4, 8, 8); ctx.strokeRect(hx - 4, hy - 4, 8, 8); }
-    ctx.textBaseline = 'alphabetic'; ctx.font = FONT_N; ctx.fillStyle = SEL; ctx.fillText('Ubiquitin · 1UBQ', x0, y0 - 8);
-    const pill = `${st[6].toFixed(1)} Å Rg`;
-    ctx.font = FONT; const tw = ctx.measureText(pill).width + 14, px = (x0 + x1) / 2 - tw / 2, py = Math.min(H - 92, y1 + 8);
-    ctx.fillStyle = SEL; rr(px, py, tw, 20, 1); ctx.fill(); ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle'; ctx.fillText(pill, px + 7, py + 10.5);
-    hot = [{ x: px, y: py, w: tw, h: 20, key: 'pill' }];
-    // collaborator cursors pinned to three residues people care about
+    // quiet callouts: the chain's size under it, and a dot with a label on three residues people care about
+    let x0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const p of pts) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y); }
+    const pill = `Rg ${st[6].toFixed(1)} Å`;
+    ctx.font = FONT_N; ctx.textBaseline = 'middle';
+    const tw = ctx.measureText(pill).width + 20, px = (x0 + x1) / 2 - tw / 2, py = Math.min(H - 92, y1 + wb + 10);
+    ctx.fillStyle = TILE; rr(px, py, tw, 24, 12); ctx.fill(); ctx.fillStyle = MUTED; ctx.fillText(pill, px + 10, py + 12.5);
+    hot = [{ x: px, y: py, w: tw, h: 24, key: 'pill' }];
+    ctx.font = FONT;
     CURSORS.forEach((c, j) => {
       const p = res(c.i), s = cur[j];
       if (!s.ok) { s.x = p.x; s.y = p.y; s.ok = true; } else { s.x += (p.x - s.x) * 0.3; s.y += (p.y - s.y) * 0.3; }
-      const col = css(c.c), x = s.x + 3, y = s.y + 3;
-      ctx.fillStyle = col; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + 17); ctx.lineTo(x + 4.6, y + 12.6); ctx.lineTo(x + 11, y + 12.6); ctx.closePath(); ctx.fill(); ctx.stroke();
-      ctx.font = FONT; const lw = ctx.measureText(c.name).width + 12; ctx.fillStyle = col; rr(x + 10, y + 15, lw, 19, 9.5); ctx.fill();
-      hot.push({ x: x - 4, y: y - 2, w: lw + 16, h: 38, key: c.name });
-      ctx.fillStyle = c.ink || '#fff'; ctx.fillText(c.name, x + 16, y + 25);
+      const lw = ctx.measureText(c.name).width + 16, lx = s.x + 9, ly = s.y - 27;
+      ctx.fillStyle = CANV; ctx.beginPath(); ctx.arc(s.x, s.y, 5.5, 0, 7); ctx.fill();
+      ctx.fillStyle = INK; ctx.beginPath(); ctx.arc(s.x, s.y, 3.5, 0, 7); ctx.fill();
+      rr(lx, ly, lw, 22, 11); ctx.fill();
+      ctx.fillStyle = CANV; ctx.fillText(c.name, lx + 8, ly + 11.5);
+      hot.push({ x: s.x - 8, y: ly, w: lw + 20, h: 34, key: c.name });
     });
     ctx.globalAlpha = 1;
     if (k !== shown) {
@@ -632,6 +612,5 @@ const DATA = /*DATA*/null;
   for (const [id, [t, x]] of Object.entries(TIPS)) { const el = $(id); if (el) bindTip(id.startsWith('p-') ? el.parentElement : el, t, x); }
   kids.forEach((el, i) => bindTip(el.querySelector('.row'), ST[i].name, ST[i].text));
   palette(); size(); onScroll(); requestAnimationFrame(loop);
-  if (document.fonts) document.fonts.ready.then(palette);   // redraw the canvas labels once the web fonts arrive
 })();
 </script>
