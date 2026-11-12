@@ -7,6 +7,7 @@ net (secondary structure) feeding a 2D dilated residual net (18-bin Cα distogra
 import io
 import math
 import random
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import torch
@@ -149,28 +150,56 @@ def loss_of(net, ex, dev, precision='fp32'):
     return ld + 0.5 * ls, vd, vs
 
 
-def unit_gradient(net, chains, dev, seed, clip=1.0, crop_p=0.35, maxl=256, precision='fp32', bucket=0):
+def unit_gradient(net, chains, dev, seed, clip=1.0, crop_p=0.35, maxl=256, precision='fp32', bucket=0, replicas=()):
     """Average of per-chain gradients, each clipped to norm `clip` as in single-machine training.
-    chains: list of loaded .npz dicts. Returns ({name: float32 array}, mean distance loss, mean SS loss)."""
-    rng = random.Random(seed)
-    params = [p for p in net.parameters()]
-    # sum on the device and copy once at the end: per-tensor copies after every chain force a GPU sync each (slow on MPS)
-    acc = [torch.zeros_like(p) for p in params]
-    lds, lss, used = [], [], 0
-    net.train()
-    for z in chains:
-        loss, ld, ls = loss_of(net, example(z, rng, crop_p, maxl, bucket), dev, precision)
-        if not (math.isfinite(ld) and math.isfinite(ls)):
-            continue
-        net.zero_grad(set_to_none=True)
-        loss.backward()
-        nn.utils.clip_grad_norm_(params, clip)
-        torch._foreach_add_(acc, [p.grad for p in params])
-        lds.append(ld); lss.append(ls); used += 1
-    if not used:
+    chains: list of loaded .npz dicts. Returns ({name: float32 array}, mean distance loss, mean SS loss).
+    replicas: copies of net with the same weights. Each takes a share of the chains in its own thread (and on CUDA its
+    own stream), so one chain is prepared on the processor while another computes on the GPU. Same result either way."""
+    nets = [net, *replicas]
+
+    def lane(k):
+        m = nets[k]
+        params = list(m.parameters())
+        # sum on the device and copy once at the end: per-tensor copies after every chain force a GPU sync each (slow on MPS)
+        acc = [torch.zeros_like(p) for p in params]
+        lds, lss = [], []
+        m.train()
+        for i in range(k, len(chains), len(nets)):
+            ex = example(chains[i], random.Random(seed * 1009 + i), crop_p, maxl, bucket)
+            loss, ld, ls = loss_of(m, ex, dev, precision)
+            if not (math.isfinite(ld) and math.isfinite(ls)):
+                continue
+            m.zero_grad(set_to_none=True)
+            loss.backward()
+            nn.utils.clip_grad_norm_(params, clip)
+            torch._foreach_add_(acc, [p.grad for p in params])
+            lds.append(ld); lss.append(ls)
+        return acc, lds, lss
+
+    if len(nets) == 1:
+        parts = [lane(0)]
+    else:
+        streams = [torch.cuda.Stream(dev) if dev.type == 'cuda' else None for _ in nets]
+        for s in streams:
+            if s: s.wait_stream(torch.cuda.current_stream(dev))       # the weights were copied on the main stream
+
+        def run(k):
+            if not streams[k]:
+                return lane(k)
+            with torch.cuda.stream(streams[k]):
+                r = lane(k)
+            streams[k].synchronize()
+            return r
+        with ThreadPoolExecutor(len(nets)) as ex:
+            parts = list(ex.map(run, range(len(nets))))
+    acc = parts[0][0]
+    for a2, _, _ in parts[1:]:
+        torch._foreach_add_(acc, a2)
+    lds = [x for p in parts for x in p[1]]; lss = [x for p in parts for x in p[2]]
+    if not lds:
         raise RuntimeError('no usable chain in this unit')
     names = [n for n, _ in net.named_parameters()]
-    return {n: (a / used).cpu().numpy() for n, a in zip(names, acc)}, float(np.mean(lds)), float(np.mean(lss))
+    return {n: (a / len(lds)).cpu().numpy() for n, a in zip(names, acc)}, float(np.mean(lds)), float(np.mean(lss))
 
 
 def evaluate(net, chains, dev):

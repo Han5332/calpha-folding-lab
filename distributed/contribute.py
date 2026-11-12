@@ -12,6 +12,7 @@ Needs Python 3.9+ with numpy and PyTorch (pip install numpy torch). Only arrays 
 read with allow_pickle=False), so the coordinator cannot run code on this computer.
 """
 import argparse
+import copy
 import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -74,7 +75,7 @@ def fetch_unit(cl, a, have_v):
         p = os.path.join(a.cache, name + '.npz')
         if not os.path.exists(p):
             data, _ = cl.call('/api/feat/' + name)
-            tmp = p + '.part'
+            tmp = f'{p}.{os.getpid()}.part'     # two trainers on one computer share the cache: never the same temp file
             open(tmp, 'wb').write(data)
             os.replace(tmp, p)
         with np.load(p, allow_pickle=False) as z:
@@ -139,6 +140,9 @@ def main():
     net = E.Net(cfg['c1'], cfg['c2'], cfg.get('cycles', 3)).to(dev)
     print(f'joined as {a.name} on {device_label(dev, precision)}')
     lock, done, have_v, backoff = threading.Lock(), [0], None, 2
+    # On an NVIDIA GPU, find how many chains to compute side by side (lanes): try 1, 2, 3, 4 for a few units each while
+    # each one is clearly faster and memory allows, then keep the fastest. One trainer, one result per unit.
+    replicas, lanes, tuning, rates, seen = [], 1, dev.type == 'cuda', {}, []
 
     def log(msg):
         with lock:
@@ -157,13 +161,30 @@ def main():
                 print('training is finished, thank you!'); return
             if weights:
                 E.load_weights(net, weights[0]); net.to(dev); have_v = weights[1]
+                for r in replicas:
+                    r.load_state_dict(net.state_dict())
             used_v = have_v
             issued += 1
             if not a.no_prefetch and not (a.max_units and issued >= a.max_units):
                 nxt = pool.submit(fetch_unit, cl, a, have_v)       # overlaps with the compute below
             t1 = time.time()
-            grads, ld, ls = E.unit_gradient(net, chains, dev, w['seed'], cfg['clip'], cfg['crop_p'], cfg['maxl'], precision, bucket)
+            grads, ld, ls = E.unit_gradient(net, chains, dev, w['seed'], cfg['clip'], cfg['crop_p'], cfg['maxl'], precision, bucket,
+                                            replicas[:lanes - 1])
             secs = time.time() - t1
+            if tuning and issued > 2:                              # the first units include the GPU's warm-up
+                seen.append(len(chains) / secs)
+                if len(seen) == 6:
+                    rates[lanes], seen = sorted(seen)[3], []
+                    free = torch.cuda.mem_get_info(dev)[0]
+                    if lanes < 4 and free > 1.5e9 and (lanes == 1 or rates[lanes] > 1.05 * rates[lanes - 1]):
+                        lanes += 1
+                    else:
+                        lanes, tuning = max(rates, key=rates.get), False
+                        print(f'using {lanes} lane{"s" * (lanes > 1)} on the GPU (chains per minute: ' +
+                              ', '.join(f'{k}: {60 * v:.0f}' for k, v in sorted(rates.items())) + ')', flush=True)
+                    while len(replicas) < lanes - 1:
+                        replicas.append(copy.deepcopy(net))
+                    del replicas[lanes - 1:]                       # give back the memory of lanes not kept
             if pending: pending.result()                          # keep at most one upload in flight
             pending = pool.submit(send_result, cl, w, used_v, grads, ld, ls, secs, send_dtype, log)
             if a.no_prefetch: pending.result(); pending = None
