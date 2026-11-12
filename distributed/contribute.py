@@ -70,12 +70,7 @@ def fetch_unit(cl, a, have_v):
     if w.get('done'):
         return w, None, None, 0.0
     t0 = time.time()
-    weights = None
-    if have_v != w['version']:
-        data, hdr = cl.call('/api/weights')
-        weights = (E.from_npz(data), int(hdr.get('X-Version', w['version'])))
-    chains = []
-    for name in w['files']:
+    def chain(name):
         p = os.path.join(a.cache, name + '.npz')
         if not os.path.exists(p):
             data, _ = cl.call('/api/feat/' + name)
@@ -83,7 +78,16 @@ def fetch_unit(cl, a, have_v):
             open(tmp, 'wb').write(data)
             os.replace(tmp, p)
         with np.load(p, allow_pickle=False) as z:
-            chains.append({k: z[k] for k in z.files})
+            return {k: z[k] for k in z.files}
+
+    # several downloads at once: over Wi-Fi each half-megabyte file alone spends most of its time starting up
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        got = ex.map(chain, w['files'])
+        weights = None
+        if have_v != w['version']:
+            data, hdr = cl.call('/api/weights')
+            weights = (E.from_npz(data), int(hdr.get('X-Version', w['version'])))
+        chains = list(got)
     return w, weights, chains, time.time() - t0
 
 

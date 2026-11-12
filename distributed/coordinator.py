@@ -348,6 +348,8 @@ def make_handler(C):
                 return self._send(200, C.status(self.client_address[0] in ('127.0.0.1', '::1')))
             if u.path.startswith('/join'):
                 return self._join(u)
+            if u.path == '/favicon.ico':          # browsers ask for it with the join page: not a wrong token
+                return self._send(404, {'error': 'not found'})
             if not self._authed():
                 return
             if u.path == '/api/work':
@@ -444,7 +446,9 @@ def main():
         # score the starting weights first, so the dashboard shows whether the volunteers' updates help
         C.eval_busy = True
         threading.Thread(target=C._evaluate, args=(0, {k: t.detach().clone() for k, t in C.net.state_dict().items()}), daemon=True).start()
-    srv = ThreadingHTTPServer((a.host, a.port), make_handler(C))
+    class Server(ThreadingHTTPServer):
+        request_queue_size = 64     # contributors open several connections at once; the default 5 resets some
+    srv = Server((a.host, a.port), make_handler(C))
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))   # save on kill too
     shown = 'localhost' if a.host in ('127.0.0.1', '::1') else a.host
     print(f'dashboard: http://{shown}:{a.port}/')
