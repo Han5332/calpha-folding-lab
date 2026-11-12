@@ -54,7 +54,7 @@ onmessage = async e => {
       say('win', 0);
       const p = Evo.predictLong(model, m.query, rows, f => say('win', f));
       postMessage({ type: 'done', id: m.id, result: {
-        format, dropped, input: rows.length, N: msa.N, L: msa.L, X: msa.X, neff: p.neff, band: p.band, windows: p.windows,
+        format, dropped, input: rows.length, N: msa.N, L: msa.L, X: msa.X, neff: p.neff, band: p.band, windows: p.windows, pairs: p.pairs,
         dca: null, mi: null, conservation: p.conservation, ss: p.ss, dist: p.dist, ms: { filter: t1 - t0, dca: 0, net: performance.now() - t1 },
       } });
       return;

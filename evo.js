@@ -397,7 +397,8 @@
       for (let i = 0; i < L; i++) { let a = 0, b = 0; for (let c = 0; c < P1; c++) { a += w2[wo + c] * p[c * L + i]; b += w2[wo + P1 + c] * p[c * L + i]; } A[i] = a; B[i] = b; }
       const wf = k => w2[wo + 2 * P1 + k];
       for (let i = 0; i < L; i++) for (let j = 0; j < L; j++) {
-        const k = i * L + j, f = feat.f2, sep = Math.abs(i - j);
+        // feat.idx: residue numbers, when the columns are two separate segments of a long chain
+        const k = i * L + j, f = feat.f2, sep = feat.idx ? Math.abs(feat.idx[i] - feat.idx[j]) : Math.abs(i - j);
         g[o * P + k] = b2[o] + A[i] + B[j] + wf(0) * f[k * 4] + wf(1) * f[k * 4 + 1] + wf(2) * f[k * 4 + 2] + wf(3) * f[k * 4 + 3]
           + wf(4) * ln + wf(5) * Math.log1p(sep) / 5 + wf(6) * (sep < 6) + wf(7) * (sep < 12) + wf(8) * (sep < 24);
       }
@@ -429,19 +430,27 @@
     return { ss, dist, L };
   }
 
-  // ---------- long chains: overlapping windows ----------
+  // ---------- long chains: overlapping windows, then pairs of far-apart segments ----------
+  // Above FULL_MAX one coevolution matrix is too big, so the chain is read 128 columns at a time. Windows of 128
+  // consecutive residues give every pair they contain. Up to FAR_MAX residues, each pair of 64-residue segments that
+  // no window holds is then read on its own (its 128 columns of the alignment, with the real residue numbers), which
+  // gives the pairs far apart in sequence. Longer chains stay banded: pairs 128 or more apart get no prediction.
   // Above FULL_MAX residues one full coevolution matrix ((20L)² entries) and one full L×L network pass no longer fit
   // in a browser. Instead the chain is cut into windows of WIN residues, half overlapping; each window gets its own
   // alignment filtering, coevolution and network pass (the network was trained on windows of this size), and the
   // predictions are averaged into a band |i − j| < WIN, weighted toward each window's centre. Pairs farther apart than
   // the band get no prediction, so no restraint.
-  const FULL_MAX = 300, WIN = 128;
+  const FULL_MAX = 300, WIN = 128, FAR_MAX = 1024;
   function predictLong(model, query, rows, onProgress) {
     const L = query.length, W = WIN, step = W >> 1, starts = [];
     for (let s = 0; ; s += step) { if (s + W >= L) { starts.push(Math.max(0, L - W)); break; } starts.push(s); }
     const dist = new Float32Array(L * W * NB), wsum = new Float32Array(L * W), ss = new Float32Array(L * 3), ssw = new Float32Array(L);
     const cons = new Float32Array(L), consw = new Float32Array(L), tri = new Float32Array(W);
     for (let i = 0; i < W; i++) tri[i] = 1 - Math.abs(i + 0.5 - W / 2) / (W / 2) + 0.05;
+    const H = W >> 1, grid = [], far = [];                 // segment starts: every 64 residues, and the last 64
+    for (let s = 0; s < L - H; s += H) grid.push(s);
+    grid.push(L - H);
+    if (L <= FAR_MAX) for (const a of grid) for (const b of grid) if (b - a > H) far.push([a, b]);
     let neff = 0, N = 0;
     starts.forEach((s0, w) => {
       const q = query.slice(s0, s0 + W), msa = process(q, rows.map(r => r.slice(s0, s0 + W)));
@@ -457,11 +466,39 @@
           for (let k = 0; k < NB; k++) dist[o * NB + k] += wab * pr.dist[src + k];
         }
       }
-      if (onProgress) onProgress((w + 1) / starts.length);
+      if (onProgress) onProgress((w + 1) / (starts.length + far.length));
     });
     for (let o = 0; o < L * W; o++) if (wsum[o] > 0) { const f = 1 / wsum[o]; for (let k = 0; k < NB; k++) dist[o * NB + k] *= f; }
     for (let i = 0; i < L; i++) { for (let c = 0; c < 3; c++) ss[3 * i + c] /= ssw[i]; cons[i] /= consw[i]; }
-    return { L, band: W, ss, dist, neff, N, conservation: cons, windows: starts.length };
+    if (!far.length) return { L, band: W, ss, dist, neff, N, conservation: cons, windows: starts.length };
+    // the whole matrix: what the windows saw, then each far pair's segment-against-segment quarter
+    const full = new Float32Array(L * L * NB);
+    for (let i = 0; i < L; i++) for (let d = 0; d < W && i + d < L; d++) if (wsum[i * W + d] > 0) {
+      const src = (i * W + d) * NB, a = (i * L + i + d) * NB, b = ((i + d) * L + i) * NB;
+      for (let k = 0; k < NB; k++) full[a + k] = full[b + k] = dist[src + k];
+    }
+    const seen = new Uint8Array(L * L);                  // the last 64 overlap the segment before: such pairs are averaged
+    far.forEach(([a, b], f) => {
+      const cols = [];
+      for (let x = 0; x < H; x++) cols.push(a + x);
+      for (let x = 0; x < H; x++) cols.push(b + x);
+      const feat = features(process(query.slice(a, a + H) + query.slice(b, b + H), rows.map(r => r.slice(a, a + H) + r.slice(b, b + H))));
+      feat.idx = cols;
+      const pr = predict(model, feat);
+      for (let x = 0; x < H; x++) for (let y = 0; y < H; y++) {
+        const i = a + x, j = b + y;
+        if (j - i < W && wsum[i * W + j - i] > 0) continue;
+        const src = (x * W + H + y) * NB, u = (i * L + j) * NB;
+        for (let k = 0; k < NB; k++) full[u + k] += pr.dist[src + k];
+        seen[i * L + j]++;
+      }
+      if (onProgress) onProgress((starts.length + f + 1) / (starts.length + far.length));
+    });
+    for (let i = 0; i < L; i++) for (let j = i + 1; j < L; j++) if (seen[i * L + j]) {
+      const u = (i * L + j) * NB, v = (j * L + i) * NB;
+      for (let k = 0; k < NB; k++) full[v + k] = (full[u + k] /= seen[i * L + j]);
+    }
+    return { L, ss, dist: full, neff, N, conservation: cons, windows: starts.length, pairs: far.length };
   }
   // Offset of pair (i, j), i < j, in pred.dist (−1 when a banded prediction does not cover it).
   function pairOffset(pred, i, j) {
@@ -586,6 +623,6 @@
     return { L, neff: entry.neff, ss: unpackF16(raw.ss), dist, dca, mi, conservation: unpackF16(raw.cons) };
   }
 
-  root.Evo = { ALPH, NB, BIN_LO, MAX_SEQS, FULL_MAX, WIN, parseAlignment, alignToQuery, process, weights, features, loadModel, predict, predictLong, pairOffset,
+  root.Evo = { ALPH, NB, BIN_LO, MAX_SEQS, FULL_MAX, FAR_MAX, WIN, parseAlignment, alignToQuery, process, weights, features, loadModel, predict, predictLong, pairOffset,
     contactMap, expectedDistance, ssLabels, restraints, precision, spdInverse, fingerprint, unpackF16, fromStored };
 })(typeof self !== 'undefined' ? self : this);

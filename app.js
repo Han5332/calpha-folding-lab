@@ -1218,7 +1218,7 @@
     const msa = Evo.process(m.query, a.rows), t0 = performance.now();
     if (m.query.length > Evo.FULL_MAX) {
       const p = Evo.predictLong(runEvoHere.model, m.query, a.rows);
-      return { format: a.format, dropped: a.dropped, input: a.rows.length, N: msa.N, L: msa.L, X: msa.X, neff: p.neff, band: p.band, windows: p.windows,
+      return { format: a.format, dropped: a.dropped, input: a.rows.length, N: msa.N, L: msa.L, X: msa.X, neff: p.neff, band: p.band, windows: p.windows, pairs: p.pairs,
         dca: null, mi: null, conservation: p.conservation, ss: p.ss, dist: p.dist, ms: { filter: 0, dca: 0, net: performance.now() - t0 } };
     }
     const feat = Evo.features(msa), t1 = performance.now();
@@ -1230,7 +1230,7 @@
     if (evoWorker === false || typeof Worker === 'undefined') return null;
     if (evoWorker) return evoWorker;
     try {
-      evoWorker = new Worker('evo-worker.js?v11');
+      evoWorker = new Worker('evo-worker.js?v12');
       evoWorker.onmessage = e => {
         const m = e.data, job = evoJobs.get(m.id);
         if (!job) return;
@@ -1335,9 +1335,9 @@
     const msaD = ready ? `${inp.source === 'built-in' ? fmtInt(ev.hits) + ' found, ' : fmtInt(ev.input) + ' read, '}filtered to ${fmtInt(ev.N - 1)}. Neff ${f1(ev.neff)} (${f2(ev.neff / L)} per residue)` : esc(inp.label || '');
     const steps = [
       ['1 · Alignment', msaB, msaD],
-      ready && ev.band ? ['2 · Coevolution', `${ev.windows} <small>windows</small>`, `Too long for one ${fmtInt(20 * L)}² matrix: DCA and the network run on ${ev.windows} half-overlapping windows of ${ev.band} residues, ${Math.round(ev.ms.net / 1000)} s in all`] :
+      ready && ev.windows ? ['2 · Coevolution', `${ev.windows + (ev.pairs || 0)} <small>windows</small>`, `Too long for one ${fmtInt(20 * L)}² matrix: DCA and the network run on ${ev.windows} half-overlapping windows of ${Evo.WIN} residues${ev.pairs ? `, then on ${ev.pairs} pairs of far-apart ${Evo.WIN / 2}-residue segments` : ''}, ${Math.round(ev.ms.net / 1000)} s in all`] :
       ['2 · Coevolution', ready ? `${fmtInt(20 * L)}² <small>matrix</small>` : 'DCA', ready ? `Mean-field DCA inverts the pair covariance; APC removes background. ${ev.ms.stored ? 'Precomputed for this built-in protein.' : Math.round(ev.ms.dca) + ' ms'}` : 'Residues that mutate together are likely in contact'],
-      ['3 · Neural network', ready ? `${fmtInt(EVO_MODEL.params / 1000)}k <small>parameters</small>` : 'ResNet', ready ? `1D + 2D dilated residual CNN → 18-bin Cα distance histogram for ${ev.band ? `pairs up to ${ev.band - 1} apart (farther pairs get no restraint)` : `${fmtInt(L * (L - 1) / 2)} pairs`}. ${ev.ms.stored ? `Precomputed for this built-in protein; loaded in ${Math.round(ev.ms.net)} ms.` : ev.band ? 'Timed with step 2.' : Math.round(ev.ms.net) + ' ms'}` : 'Distance histogram and secondary structure for every residue'],
+      ['3 · Neural network', ready ? `${fmtInt(EVO_MODEL.params / 1000)}k <small>parameters</small>` : 'ResNet', ready ? `1D + 2D dilated residual CNN → 18-bin Cα distance histogram for ${ev.band ? `pairs up to ${ev.band - 1} apart (farther pairs get no restraint)` : `${fmtInt(L * (L - 1) / 2)} pairs`}. ${ev.ms.stored ? `Precomputed for this built-in protein; loaded in ${Math.round(ev.ms.net)} ms.` : ev.windows ? 'Timed with step 2.' : Math.round(ev.ms.net) + ' ms'}` : 'Distance histogram and secondary structure for every residue'],
       ['4 · Restraints', ready ? (ev.shallow ? 'off <small>too few homologs</small>' : `${fmtInt(ev.rest.I.length)} <small>pair potentials</small>`) : '→ fold', ready ? (ev.shallow ? `Neff ${f1(ev.neff)} is below ${EVO_NEFF_MIN}, too little for the network to be trusted: folding uses fragment secondary structure and no AI restraints (the v2 inputs).` : 'Smooth −ln p(d)/p_ref(d) curves added to the force field of “MSA + AI”') : 'The predictions steer the folding run'],
     ];
     pipe.innerHTML = steps.map(([k, b, d], i) => `<div class="step" data-s="${st(i)}"><span class="k"><i></i>${k}</span><b>${b}</b><span class="d">${d}</span>${bar(i)}</div>`).join('');
