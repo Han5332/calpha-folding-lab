@@ -152,3 +152,4 @@ nothing.
 | `holdout_v8.txt` | The held-out chains every run so far has used |
 | `export_app.py` | Writes trained weights into the lab's `evo-model.js` |
 | `weights/v8.npz` | v8 weights, the starting point |
+| `weights/big1.npz` | big-protein run 1 (update 7,846): better far contacts on big proteins, not yet better folds; not used by the lab |
